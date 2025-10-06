@@ -6,20 +6,20 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('professors', function (Blueprint $table) {
             $table->id();
+            $table->string('name');
+            $table->string('type'); // Full-time / Part-time
+            $table->string('department');
+            $table->integer('max_load');
+            $table->string('time_unavailable')->nullable();
+            $table->string('status')->default('Active'); // Active / Inactive
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('professors');

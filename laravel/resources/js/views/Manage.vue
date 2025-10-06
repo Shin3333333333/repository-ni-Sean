@@ -26,205 +26,240 @@
       <button class="add-btn" @click="addEntry">+ Add</button>
     </div>
 
-    <!-- tables -->
-
     <table v-if="activeTable === 'faculty'" class="styled-table">
-      <thead>
-        <tr>
-          <th>Faculty</th>
-          <th>Type</th>
-          <th>Department</th>
-          <th>Max Load</th>
-          <th>Time Unavailable</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(faculty, index) in facultyList" :key="faculty.id">
-          <td>{{ faculty.name }}</td>
-          <td>{{ faculty.type }}</td>
-          <td>{{ faculty.department }}</td>
-          <td>{{ faculty.maxLoad }}</td>
-          <td>{{ faculty.timeUnavailable }}</td>
-          <td>
-            <span
-              class="status"
-              :class="faculty.available ? 'status-yes' : 'status-no'"
-            >
-              {{ faculty.available ? "Available" : "Unavailable" }}
-            </span>
-          </td>
-          <td>
-            <button @click="editEntry(index)">Edit</button>
-            <button class="delete-btn" @click="removeEntry(index)">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+  <thead>
+    <tr>
+      <th>Faculty</th>
+      <th>Type</th>
+      <th>Department</th>
+      <th>Max Load</th>
+      <th>Time Unavailable</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr v-for="(faculty, index) in facultyList" :key="faculty.id">
+      <td>{{ faculty.name }}</td>
+      <td>{{ faculty.type }}</td>
+      <td>{{ faculty.department }}</td>
+      <td>{{ faculty.max_load }}</td>
+      <td>{{ faculty.time_unavailable }}</td>
+      <td>
+        <span
+          class="status"
+          :class="faculty.status === 'Active' ? 'status-yes' : 'status-no'"
+        >
+          {{ faculty.status }}
+        </span>
+      </td>
+      <td>
+        <button @click="openEditFacultyModal(index)">Edit</button>
+        <button class="delete-btn" @click="removeEntry(index)">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<table v-if="activeTable === 'room'" class="styled-table">
+  <thead>
+    <tr>
+      <th>Room</th>
+      <th>Capacity</th>
+      <th>Type</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <!-- Room Table -->
+    <tbody>
+      <tr v-for="(room, index) in roomList" :key="room.id">
+        <td>{{ room.name }}</td>
+        <td>{{ room.capacity }}</td>
+        <td>{{ room.type }}</td>
+        <td>
+          <span class="status" :class="room.status === 'Available' ? 'status-yes' : 'status-no'">
+            {{ room.status }}
+          </span>
+        </td>
+        <td>
+          <button @click="openEditRoomModal(index)">Edit</button>
+          <button class="delete-btn" @click="removeEntry(index)">Delete</button>
+        </td>
+      </tr>
+    </tbody>
+</table>
+<table v-if="activeTable === 'course'" class="styled-table">
+  <thead>
+    <tr>
+      <th>Course/Section</th>
+      <th>Year Level</th>
+      <th>Department</th>
+      <th>Students</th>
+      <th>Adviser</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr v-for="(course, index) in courseList" :key="course.id">
+      <td>{{ course.name }}</td>
+      <td>{{ course.year }}</td>
+      <td>{{ course.department }}</td>
+      <td>{{ course.students }}</td>
+      <td>{{ course.adviser }}</td>
+      <td>
+        <span class="status" :class="course.status === 'Active' ? 'status-yes' : 'status-no'">
+          {{ course.status }}
+        </span>
+      </td>
+      <td>
+        <button @click="openEditCourseModal(index)">Edit</button>
+        <button class="delete-btn" @click="removeEntry(index)">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
-    <table v-if="activeTable === 'room'" class="styled-table">
-      <thead>
-        <tr>
-          <th>Room</th>
-          <th>Capacity</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(room, index) in roomList" :key="room.id">
-          <td>{{ room.name }}</td>
-          <td>{{ room.capacity }}</td>
-          <td>{{ room.type }}</td>
-          <td>
-            <span
-              class="status"
-              :class="room.available ? 'status-yes' : 'status-no'"
-            >
-              {{ room.available ? "Available" : "Unavailable" }}
-            </span>
-          </td>
-          <td>
-            <button @click="editEntry(index)">Edit</button>
-            <button class="delete-btn" @click="removeEntry(index)">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
 
-    <table v-if="activeTable === 'course'" class="styled-table">
-      <thead>
-        <tr>
-          <th>Course/Section</th>
-          <th>Year Level</th>
-          <th>Department</th>
-          <th>Students</th>
-          <th>Adviser</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(course, index) in courseList" :key="course.id">
-          <td>{{ course.name }}</td>
-          <td>{{ course.year }}</td>
-          <td>{{ course.department }}</td>
-          <td>{{ course.students }}</td>
-          <td>{{ course.adviser }}</td>
-          <td>
-            <span
-              class="status"
-              :class="course.active ? 'status-yes' : 'status-no'"
-            >
-              {{ course.active ? "Active" : "Inactive" }}
-            </span>
-          </td>
-          <td>
-            <button @click="editEntry(index)">Edit</button>
-            <button class="delete-btn" @click="removeEntry(index)">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
 
-    <!-- Faculty Add Modal -->
-    <div v-if="showFacultyModal" class="modal-overlay" @click="handleModalClick">
-      <div class="modal-content" @click.stop>
-        <h3>Add New Faculty</h3>
-        <form @submit.prevent="addFaculty">
-          <div class="form-group">
-            <label>Faculty Name:</label>
-            <input v-model="facultyForm.name" type="text" required />
-          </div>
-          <div class="form-group">
-            <label>Type:</label>
-            <select v-model="facultyForm.type" required>
-              <option value="">Select Type</option>
-              <option value="Full-time">Full-time</option>
-              <option value="Part-time">Part-time</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Field/Department:</label>
-            <input v-model="facultyForm.department" type="text" required />
-          </div>
-          <div class="form-group">
-            <label>Max Load:</label>
-            <input v-model.number="facultyForm.maxLoad" type="number" min="1" required />
-          </div>
-          <div class="form-group">
-            <label>Status:</label>
-            <select v-model="facultyForm.status" required>
-              <option value="">Select Status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Time Unavailable:</label>
-            <div class="time-unavailable">
-              <select v-model="facultyForm.day">
-                <option value="">Select Day</option>
-                <option value="M">Monday</option>
-                <option value="T">Tuesday</option>
-                <option value="W">Wednesday</option>
-                <option value="Th">Thursday</option>
-                <option value="F">Friday</option>
-                <option value="Sat">Saturday</option>
-              </select>
-              <input v-model="facultyForm.time" type="text" placeholder="e.g., 1-3PM" />
-            </div>
-          </div>
-          <div class="modal-buttons">
-            <button type="button" @click="closeFacultyModal">Cancel</button>
-            <button type="submit">Add</button>
-          </div>
-        </form>
+
+<!-- Faculty Add Modal -->
+<div v-if="showFacultyModal" class="modal-overlay" @click="handleModalClick">
+  <div class="modal-content" @click.stop>
+    <h3>Add New Faculty</h3>
+    <form @submit.prevent="addFaculty" class="grid-row gap-4">
+      <div class="form-group col-6">
+        <label>Faculty Name:</label>
+        <input v-model="facultyForm.name" type="text" required />
       </div>
-    </div>
-
-    <!-- Course/Section Add Modal -->
-    <div v-if="showCourseModal" class="modal-overlay" @click="handleModalClick">
-      <div class="modal-content" @click.stop>
-        <h3>Add New Course/Section</h3>
-        <form @submit.prevent="addCourse">
-          <div class="form-group">
-            <label>Course Section:</label>
-            <input v-model="courseForm.name" type="text" placeholder="e.g., BSIT 3-A" required />
-          </div>
-          <div class="form-group">
-            <label>Year/Level:</label>
-            <select v-model="courseForm.year" required>
-              <option value="">Select Year</option>
-              <option value="1st">1st Year</option>
-              <option value="2nd">2nd Year</option>
-              <option value="3rd">3rd Year</option>
-              <option value="4th">4th Year</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Curriculum:</label>
-            <div class="curriculum-group">
-              <select v-model="courseForm.curriculum" required>
-                <option value="">Select Curriculum</option>
-                <option value="CMO 1">CMO 1</option>
-                <option value="CMO 2">CMO 2</option>
-                <option value="Custom">Custom</option>
-              </select>
-              <label for="curriculum-upload" class="upload-icon">📁</label>
-              <input id="curriculum-upload" type="file" @change="handleCurriculumUpload" accept=".pdf,.docx" style="display: none;" />
-            </div>
-          </div>
-          <div class="modal-buttons">
-            <button type="button" @click="closeCourseModal">Cancel</button>
-            <button type="submit">Add</button>
-          </div>
-        </form>
+      <div class="form-group col-6">
+        <label>Type:</label>
+        <select v-model="facultyForm.type" required>
+          <option value="">Select Type</option>
+          <option value="Full-time">Full-time</option>
+          <option value="Part-time">Part-time</option>
+        </select>
       </div>
-    </div>
+      <div class="form-group col-6">
+        <label>Department:</label>
+        <input v-model="facultyForm.department" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Max Load:</label>
+        <input v-model.number="facultyForm.maxLoad" type="number" min="1" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Status:</label>
+        <select v-model="facultyForm.status" required>
+          <option value="">Select Status</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </div>
+      <div class="form-group col-6">
+        <label>Time Unavailable:</label>
+        <div class="grid-row gap-2">
+          <select class="col-6" v-model="facultyForm.day">
+            <option value="">Select Day</option>
+            <option value="M">Monday</option>
+            <option value="T">Tuesday</option>
+            <option value="W">Wednesday</option>
+            <option value="Th">Thursday</option>
+            <option value="F">Friday</option>
+            <option value="Sat">Saturday</option>
+          </select>
+          <input class="col-6" v-model="facultyForm.time" type="text" placeholder="e.g., 1-3PM" />
+        </div>
+      </div>
+
+      <div class="modal-buttons col-12 flex justify-end gap-2">
+        <button type="button" @click="closeFacultyModal">Cancel</button>
+        <button type="submit">Add</button>
+      </div>
+    </form>
   </div>
+</div>
+
+<!-- Room Add Modal -->
+<div v-if="showRoomModal" class="modal-overlay" @click="closeRoomModal">
+  <div class="modal-content" @click.stop>
+    <h3>Add New Room</h3>
+    <form @submit.prevent="addRoom" class="grid-row gap-4">
+      <div class="form-group col-6">
+        <label>Room Name:</label>
+        <input v-model="roomForm.name" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Capacity:</label>
+        <input v-model.number="roomForm.capacity" type="number" min="1" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Type:</label>
+        <input v-model="roomForm.type" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Status:</label>
+        <select v-model="roomForm.status" required>
+          <option value="Available">Available</option>
+          <option value="Unavailable">Unavailable</option>
+        </select>
+      </div>
+      <div class="modal-buttons col-12 flex justify-end gap-2">
+        <button type="button" @click="closeRoomModal">Cancel</button>
+        <button type="submit">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- Course/Section Add Modal -->
+<div v-if="showCourseModal" class="modal-overlay" @click="handleModalClick">
+  <div class="modal-content" @click.stop>
+    <h3>Add New Course/Section</h3>
+    <form @submit.prevent="addCourse" class="grid-row gap-4">
+      <div class="form-group col-6">
+        <label>Course Section:</label>
+        <input v-model="courseForm.courseName" type="text" placeholder="e.g., BSIT 3-A" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Year/Level:</label>
+        <select v-model="courseForm.yearLevel" required>
+          <option value="">Select Year</option>
+          <option value="1st">1st Year</option>
+          <option value="2nd">2nd Year</option>
+          <option value="3rd">3rd Year</option>
+          <option value="4th">4th Year</option>
+        </select>
+      </div>
+      <div class="form-group col-6">
+        <label>Department:</label>
+        <input v-model="courseForm.department" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Adviser:</label>
+        <input v-model="courseForm.adviser" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Curriculum:</label>
+        <div class="grid-row gap-2">
+          <select class="col-10" v-model="courseForm.curriculum" required>
+            <option value="">Select Curriculum</option>
+            <option value="CMO 1">CMO 1</option>
+            <option value="CMO 2">CMO 2</option>
+            <option value="Custom">Custom</option>
+          </select>
+          <label for="curriculum-upload" class="upload-icon col-2">📁</label>
+          <input id="curriculum-upload" type="file" @change="handleCurriculumUpload" accept=".pdf,.docx" style="display: none;" />
+        </div>
+      </div>
+
+      <div class="modal-buttons col-12 flex justify-end gap-2">
+        <button type="button" @click="closeCourseModal">Cancel</button>
+        <button type="submit">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+</div>
   <!-- Curriculum Subjects Modal -->
 <div v-if="showSubjectModal" class="modal-overlay" @click="handleModalClick">
   <div class="modal-content" @click.stop>
@@ -409,42 +444,37 @@
 
 
 <!-- Edit Room Modal -->
-<div v-if="showEditRoomModal" class="modal-overlay" @click="closeRoomModal">
+<div v-if="showEditRoomModal" class="modal-overlay" @click="closeEditRoomModal">
   <div class="modal-content" @click.stop>
     <h3>Edit Room</h3>
-    <form @submit.prevent="updateRoom">
-      <div class="grid-row">
-        <div class="form-group col-6">
-          <label>Room Name:</label>
-          <input v-model="roomForm.name" type="text" required />
-        </div>
-        <div class="form-group col-6">
-          <label>Capacity:</label>
-          <input v-model.number="roomForm.capacity" type="number" min="1" required />
-        </div>
+    <form @submit.prevent="updateRoom" class="grid-row gap-4">
+      <div class="form-group col-6">
+        <label>Room Name:</label>
+        <input v-model="editRoomForm.name" type="text" required />
       </div>
-
-      <div class="grid-row">
-        <div class="form-group col-6">
-          <label>Type:</label>
-          <input v-model="roomForm.type" type="text" required />
-        </div>
-        <div class="form-group col-6">
-          <label>Status:</label>
-          <select v-model="roomForm.status" required>
-            <option value="Available">Available</option>
-            <option value="Unavailable">Unavailable</option>
-          </select>
-        </div>
+      <div class="form-group col-6">
+        <label>Capacity:</label>
+        <input v-model.number="editRoomForm.capacity" type="number" min="1" required />
       </div>
-
-      <div class="modal-buttons">
-        <button type="button" @click="closeRoomModal">Cancel</button>
-        <button type="submit">Update</button>
+      <div class="form-group col-6">
+        <label>Type:</label>
+        <input v-model="editRoomForm.type" type="text" required />
+      </div>
+      <div class="form-group col-6">
+        <label>Status:</label>
+        <select v-model="editRoomForm.status" required>
+          <option value="Available">Available</option>
+          <option value="Unavailable">Unavailable</option>
+        </select>
+      </div>
+      <div class="modal-buttons col-12 flex justify-end gap-2">
+        <button type="button" @click="closeEditRoomModal">Cancel</button>
+        <button type="submit">Save Changes</button>
       </div>
     </form>
   </div>
 </div>
+
 
 </template>
 <script>
@@ -463,11 +493,12 @@ export default {
       showEditFacultyModal: false,
       showEditCourseModal: false,
       showEditRoomModal: false,
+      showRoomModal: false,
 
       // --- Tracking ---
-      editFacultyIndex: null,
-      editCourseIndex: null,
-      editRoomIndex: null,
+      editFacultyId: null,
+      editCourseId: null,
+      editRoomId: null,
 
       // --- Forms ---
       facultyForm: {
@@ -490,43 +521,22 @@ export default {
       },
       roomForm: {
         name: "",
-        capacity: "",
+        capacity: 1,
         type: "",
         status: "Available",
       },
 
       // --- Data Lists ---
-      facultyList: [
-        {
-          id: 1,
-          name: "Mr. Smith",
-          type: "Full-time",
-          department: "BSIT",
-          maxLoad: 18,
-          timeUnavailable: "MWF 1-3PM",
-          available: true,
-        },
-      ],
-      roomList: [
-        { id: 1, name: "Room 101", capacity: 40, type: "Lecture", available: true },
-        { id: 2, name: "Lab 201", capacity: 25, type: "Laboratory", available: false },
-      ],
-      courseList: [
-        {
-          id: 1,
-          name: "BSIT 3-A",
-          year: "3rd",
-          department: "BSIT",
-          students: 45,
-          adviser: "Dr. Brown",
-          active: true,
-          curriculum: "CMO 1",
-        },
-      ],
+      facultyList: [],
+      roomList: [],
+      courseList: [],
       subjectList: [],
       selectedCourse: null,
-      nextId: 3,
     };
+  },
+
+  mounted() {
+    this.loadAllData();
   },
 
   watch: {
@@ -542,70 +552,225 @@ export default {
   },
 
   methods: {
-    // --- ADD ENTRY ---
-    addEntry() {
-      if (this.activeTable === "faculty") {
-        this.showFacultyModal = true;
-        this.resetFacultyForm();
-      } else if (this.activeTable === "course") {
-        this.showCourseModal = true;
-        this.resetCourseForm();
-      } else {
-        alert(`Open Add Form for ${this.activeTable}`);
-      }
-    },
+    // --- LOAD DATA ---
+   async loadAllData() {
+  try {
+    const [facRes, roomRes, courseRes] = await Promise.all([
+      axios.get("http://localhost:8000/api/professors"),
+      axios.get("http://localhost:8000/api/rooms"),
+      axios.get("http://localhost:8000/api/courses"),
+    ]);
 
-    // --- EDIT ENTRY ---
-    editEntry(index) {
-      if (this.activeTable === "faculty") {
-        this.openEditFacultyModal(index);
-      } else if (this.activeTable === "course") {
-        this.openEditCourseModal(index);
-        this.loadCourseSubjects(index);
-      } else if (this.activeTable === "room") {
-        this.openEditRoomModal(index);
-      }
-    },
+    console.log("facRes:", facRes.data);
+    console.log("roomRes:", roomRes.data);
+    console.log("courseRes:", courseRes.data);
 
-    // --- OPEN EDIT MODALS ---
-    openEditFacultyModal(index) {
-      const faculty = this.facultyList[index];
-      this.facultyForm = { ...faculty };
-      this.editFacultyIndex = index;
-      this.showEditFacultyModal = true;
-    },
- openEditCourseModal(index) {
-  const course = this.courseList[index];
-  this.courseForm = { ...course, uploadedFile: null }; // reset uploaded file
-  this.editCourseIndex = index;
-  this.showEditCourseModal = true;
-
-  // Load subjects based on curriculum
-  if (course.curriculum === "Custom" && course.uploadedFile) {
-    // If it’s a custom uploaded file, parse it
-    this.parseUploadedCurriculum(course.uploadedFile);
-  } else {
-    // Predefined curriculum, fetch from backend
-    this.loadCourseSubjectsFromCurriculum();
+    this.facultyList = Array.isArray(facRes.data)
+      ? facRes.data
+      : facRes.data.data;
+    this.roomList = Array.isArray(roomRes.data)
+      ? roomRes.data
+      : roomRes.data.data;
+    this.courseList = Array.isArray(courseRes.data)
+      ? courseRes.data
+      : courseRes.data.data;
+  } catch (err) {
+    console.error("Failed to load data:", err);
   }
 }
 ,
-    openEditRoomModal(index) {
-      const room = this.roomList[index];
-      this.roomForm = { ...room };
-      this.editRoomIndex = index;
-      this.showEditRoomModal = true;
+
+    // --- ADD ENTRY ---
+    addEntry() {
+      if (this.activeTable === "faculty") this.showFacultyModal = true;
+      else if (this.activeTable === "course") this.showCourseModal = true;
+      else if (this.activeTable === "room") this.showRoomModal = true;
     },
 
-    // --- LOAD RELATED SUBJECTS ---
-    async loadCourseSubjects(index) {
-      const course = this.courseList[index];
-      this.selectedCourse = course;
+    async addFaculty() {
       try {
-        const res = await axios.get(`/api/curriculum/${course.curriculum_id || course.curriculum}`);
-        this.subjectList = res.data.subjects || [];
+        const res = await axios.post("/api/professors", {
+          name: this.facultyForm.name,
+          type: this.facultyForm.type,
+          department: this.facultyForm.department,
+          max_load: this.facultyForm.maxLoad,
+          status: this.facultyForm.status,
+          time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
+        });
+        this.facultyList.push(res.data);
+        this.closeFacultyModal();
       } catch (err) {
-        console.error("Failed to load subjects:", err);
+        console.error("Failed to add faculty:", err);
+      }
+    },
+
+    async addCourse() {
+      try {
+        const res = await axios.post("/api/courses", {
+          name: this.courseForm.courseName,
+          section: this.courseForm.section,
+          year: this.courseForm.yearLevel,
+          department: this.courseForm.department,
+          adviser: this.courseForm.adviser,
+          curriculum: this.courseForm.curriculum,
+        });
+        this.courseList.push(res.data);
+        this.closeCourseModal();
+      } catch (err) {
+        console.error("Failed to add course:", err);
+      }
+    },
+
+    // ✅ FIXED ADD ROOM
+    addRoom() {
+  axios.post('/api/rooms', this.roomForm)
+    .then(res => {
+      // ✅ Make sure roomList exists and is reactive
+      if (Array.isArray(this.roomList)) {
+        this.roomList.push(res.data);
+      } else {
+        this.roomList = [res.data];
+      }
+
+      // ✅ Close modal and reset form
+      this.closeRoomModal();
+
+      // ✅ Do NOT immediately re-fetch; rely on reactive update
+      // But if you still want to sync with DB, delay a bit:
+      // setTimeout(() => this.getRooms(), 300);
+
+    })
+    .catch(err => {
+      console.error('Failed to add room:', err);
+      alert('Failed to add room');
+    });
+},
+
+addRoom() {
+  axios.post('/api/rooms', this.roomForm)
+    .then(res => {
+      // ✅ Make sure roomList exists and is reactive
+      if (Array.isArray(this.roomList)) {
+        this.roomList.push(res.data);
+      } else {
+        this.roomList = [res.data];
+      }
+
+      // ✅ Close modal and reset form
+      this.closeRoomModal();
+
+      // ✅ Do NOT immediately re-fetch; rely on reactive update
+      // But if you still want to sync with DB, delay a bit:
+      // setTimeout(() => this.getRooms(), 300);
+
+    })
+    .catch(err => {
+      console.error('Failed to add room:', err);
+      alert('Failed to add room');
+    });
+}
+,
+// ✅ Refresh room list from DB
+// ✅ Refresh room list from DB
+async refreshRooms() {
+  try {
+    const res = await axios.get("http://localhost:8000/api/rooms"); // ✅ Use GET, not POST
+    this.roomList = Array.isArray(res.data) ? res.data : res.data.data; // handle pagination or plain array
+    console.log("Room list refreshed:", this.roomList);
+  } catch (err) {
+    console.error("Failed to refresh room list:", err);
+  }
+},
+
+
+
+    // --- EDIT ENTRY ---
+    openEditFacultyModal(faculty) {
+      this.facultyForm = { ...faculty };
+      this.editFacultyId = faculty.id;
+      this.showEditFacultyModal = true;
+    },
+
+    async updateFaculty() {
+      try {
+        const res = await axios.put(`/api/professors/${this.editFacultyId}`, {
+          name: this.facultyForm.name,
+          type: this.facultyForm.type,
+          department: this.facultyForm.department,
+          max_load: this.facultyForm.maxLoad,
+          status: this.facultyForm.status,
+          time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
+        });
+        const index = this.facultyList.findIndex(f => f.id === this.editFacultyId);
+        this.facultyList.splice(index, 1, res.data);
+        this.closeFacultyModal();
+      } catch (err) {
+        console.error("Failed to update faculty:", err);
+      }
+    },
+
+    openEditCourseModal(course) {
+      this.courseForm = { ...course };
+      this.editCourseId = course.id;
+      this.showEditCourseModal = true;
+    },
+
+    async updateCourse() {
+      try {
+        const res = await axios.put(`/api/courses/${this.editCourseId}`, {
+          name: this.courseForm.courseName,
+          section: this.courseForm.section,
+          year: this.courseForm.yearLevel,
+          department: this.courseForm.department,
+          adviser: this.courseForm.adviser,
+          curriculum: this.courseForm.curriculum,
+        });
+        const index = this.courseList.findIndex(c => c.id === this.editCourseId);
+        this.courseList.splice(index, 1, res.data);
+        this.closeCourseModal();
+      } catch (err) {
+        console.error("Failed to update course:", err);
+      }
+    },
+
+   openEditRoomModal(index) {
+    const room = this.roomList[index];
+    this.editRoomForm = { ...room }; // copy existing room data
+    this.showEditRoomModal = true;
+  },
+
+    async updateRoom() {
+      try {
+        const res = await axios.put(`/api/rooms/${this.editRoomId}`, this.roomForm);
+        const index = this.roomList.findIndex(r => r.id === this.editRoomId);
+        this.roomList.splice(index, 1, res.data);
+        this.closeRoomModal();
+      } catch (err) {
+        console.error("Failed to update room:", err);
+      }
+    },
+
+    // --- DELETE ENTRY ---
+    async removeEntry(item) {
+      if (!confirm("Are you sure you want to delete this entry?")) return;
+
+      let apiUrl = "";
+      if (this.activeTable === "faculty") apiUrl = `/api/professors/${item.id}`;
+      else if (this.activeTable === "course") apiUrl = `/api/courses/${item.id}`;
+      else if (this.activeTable === "room") apiUrl = `/api/rooms/${item.id}`;
+
+      try {
+        await axios.delete(apiUrl);
+        const list =
+          this.activeTable === "faculty"
+            ? this.facultyList
+            : this.activeTable === "course"
+            ? this.courseList
+            : this.roomList;
+        const index = list.findIndex(e => e.id === item.id);
+        if (index > -1) list.splice(index, 1);
+      } catch (err) {
+        console.error("Failed to delete entry:", err);
       }
     },
 
@@ -614,97 +779,35 @@ export default {
       this.showFacultyModal = false;
       this.showEditFacultyModal = false;
       this.resetFacultyForm();
+      document.body.classList.remove("modal-open");
     },
     closeCourseModal() {
       this.showCourseModal = false;
       this.showEditCourseModal = false;
       this.resetCourseForm();
+      document.body.classList.remove("modal-open");
     },
-        closeRoomModal() {
-      this.showCourseModal = false;
+    closeRoomModal() {
+      this.showRoomModal = false;
       this.showEditRoomModal = false;
-      this.resetCourseForm();
-    },
-    closeSubjectModal() {
-      this.showSubjectModal = false;
-      this.subjectList = [];
-      this.selectedCourse = null;
+      this.resetRoomForm();
+      document.body.classList.remove("modal-open");
     },
 
-    // --- FORM RESET ---
+    // --- RESET FORMS ---
     resetFacultyForm() {
-      this.facultyForm = {
-        name: "",
-        type: "",
-        department: "",
-        maxLoad: 1,
-        status: "",
-        day: "",
-        time: "",
-      };
+      this.facultyForm = { name: "", type: "", department: "", maxLoad: 1, status: "", day: "", time: "" };
     },
     resetCourseForm() {
-      this.courseForm = {
-        courseName: "",
-        section: "",
-        yearLevel: "",
-        department: "",
-        adviser: "",
-        curriculum: "",
-        uploadedFile: null,
-      };
-    },parseUploadedCurriculum(file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: "array" });
-    const firstSheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[firstSheetName];
-    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-    // Skip header row
-    this.subjectList = jsonData.slice(1).map(row => ({
-      code: row[0] || "",
-      title: row[1] || "",
-      units: row[2] || "",
-      semester: row[3] || "",
-      year_level: row[4] || ""
-    }));
-  };
-  reader.readAsArrayBuffer(file);
-},loadCourseSubjectsFromCurriculum() {
-  if (!this.courseForm.curriculum || this.courseForm.curriculum === "Custom") {
-    this.subjectList = [];
-    return;
-  }
-
-  // Example: fetch subjects from backend API
-  axios.get(`/api/curriculum/${this.courseForm.curriculum}`)
-    .then(res => {
-      this.subjectList = res.data.subjects || [];
-    })
-    .catch(err => {
-      console.error("Failed to load curriculum subjects", err);
-      this.subjectList = [];
-    });
-}
-
-,
-    
-
-    // --- REMOVE ENTRY ---
-    removeEntry(index) {
-      if (confirm("Are you sure you want to remove this entry?")) {
-        if (this.activeTable === "faculty") this.facultyList.splice(index, 1);
-        if (this.activeTable === "room") this.roomList.splice(index, 1);
-        if (this.activeTable === "course") this.courseList.splice(index, 1);
-      }
+      this.courseForm = { courseName: "", section: "", yearLevel: "", department: "", adviser: "", curriculum: "", uploadedFile: null };
+    },
+    resetRoomForm() {
+      this.roomForm = { name: "", capacity: 1, type: "", status: "Available" };
     },
   },
 };
-
-
 </script>
+
 
 
 <style scoped>

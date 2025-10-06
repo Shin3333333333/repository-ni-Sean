@@ -11,6 +11,7 @@
   |
   */
   // SPA Catch-All: Serves Vue app for all routes (/, /schedules, /login, etc.)
-  Route::get('/{any}', function () {
-      return view('app');
-  })->where('any', '.*');
+// Only catch non-API routes
+Route::get('/{any}', function () {
+    return view('app');
+})->where('any', '^(?!api).*$');

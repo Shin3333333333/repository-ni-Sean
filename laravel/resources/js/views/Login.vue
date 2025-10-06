@@ -41,8 +41,8 @@ export default {
   methods: {
     async checkPassword() {
       try {
-        await axios.get('/sanctum/csrf-cookie');
-        const res = await axios.post("/login", {
+     
+        const res = await axios.post("http://localhost:8000/login",{
           email: this.email,
           password: this.password
         });

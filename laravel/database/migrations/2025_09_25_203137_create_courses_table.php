@@ -6,20 +6,22 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('courses', function (Blueprint $table) {
             $table->id();
+            $table->string('name');        // e.g., "BSIT"
+            $table->string('section');     // e.g., "3-A"
+            $table->string('year');        // "1st", "2nd", etc.
+            $table->string('department');  
+            $table->integer('students')->default(0);
+            $table->string('adviser')->nullable();
+            $table->string('curriculum')->nullable();
+            $table->string('status')->default('Active'); // Active / Inactive
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('courses');
