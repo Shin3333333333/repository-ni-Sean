@@ -361,7 +361,16 @@
         </div>
         <div class="form-group col-6">
           <label>Curriculum:</label>
-          <input v-model="courseForm.curriculum" type="text" required />
+          <div class="curriculum-group">
+            <select v-model="courseForm.curriculum" required @change="loadCourseSubjectsFromCurriculum">
+              <option value="">Select Curriculum</option>
+              <option value="CMO 1">CMO 1</option>
+              <option value="CMO 2">CMO 2</option>
+              <option value="Custom">Custom</option>
+            </select>
+            <label for="curriculum-upload" class="upload-icon">📁</label>
+            <input id="curriculum-upload" type="file" @change="handleCurriculumUpload" accept=".xlsx" style="display: none;" />
+          </div>
         </div>
       </div>
 
@@ -371,15 +380,33 @@
       </div>
     </form>
 
-    <!-- Subjects related to curriculum -->
+    <!-- Subjects loaded from curriculum -->
     <div v-if="subjectList.length">
       <h4>Subjects</h4>
-      <ul>
-        <li v-for="(subject, i) in subjectList" :key="i">{{ subject.name }}</li>
-      </ul>
+      <table class="styled-table">
+        <thead>
+          <tr>
+            <th>Subject Code</th>
+            <th>Title</th>
+            <th>Units</th>
+            <th>Semester</th>
+            <th>Year Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(subject, idx) in subjectList" :key="idx">
+            <td>{{ subject.code }}</td>
+            <td>{{ subject.title }}</td>
+            <td>{{ subject.units }}</td>
+            <td>{{ subject.semester }}</td>
+            <td>{{ subject.year_level }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
+
 
 <!-- Edit Room Modal -->
 <div v-if="showEditRoomModal" class="modal-overlay" @click="closeRoomModal">
@@ -547,12 +574,22 @@ export default {
       this.editFacultyIndex = index;
       this.showEditFacultyModal = true;
     },
-    openEditCourseModal(index) {
-      const course = this.courseList[index];
-      this.courseForm = { ...course };
-      this.editCourseIndex = index;
-      this.showEditCourseModal = true;
-    },
+ openEditCourseModal(index) {
+  const course = this.courseList[index];
+  this.courseForm = { ...course, uploadedFile: null }; // reset uploaded file
+  this.editCourseIndex = index;
+  this.showEditCourseModal = true;
+
+  // Load subjects based on curriculum
+  if (course.curriculum === "Custom" && course.uploadedFile) {
+    // If it’s a custom uploaded file, parse it
+    this.parseUploadedCurriculum(course.uploadedFile);
+  } else {
+    // Predefined curriculum, fetch from backend
+    this.loadCourseSubjectsFromCurriculum();
+  }
+}
+,
     openEditRoomModal(index) {
       const room = this.roomList[index];
       this.roomForm = { ...room };
@@ -616,7 +653,44 @@ export default {
         curriculum: "",
         uploadedFile: null,
       };
-    },
+    },parseUploadedCurriculum(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const data = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(data, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+    // Skip header row
+    this.subjectList = jsonData.slice(1).map(row => ({
+      code: row[0] || "",
+      title: row[1] || "",
+      units: row[2] || "",
+      semester: row[3] || "",
+      year_level: row[4] || ""
+    }));
+  };
+  reader.readAsArrayBuffer(file);
+},loadCourseSubjectsFromCurriculum() {
+  if (!this.courseForm.curriculum || this.courseForm.curriculum === "Custom") {
+    this.subjectList = [];
+    return;
+  }
+
+  // Example: fetch subjects from backend API
+  axios.get(`/api/curriculum/${this.courseForm.curriculum}`)
+    .then(res => {
+      this.subjectList = res.data.subjects || [];
+    })
+    .catch(err => {
+      console.error("Failed to load curriculum subjects", err);
+      this.subjectList = [];
+    });
+}
+
+,
+    
 
     // --- REMOVE ENTRY ---
     removeEntry(index) {
@@ -628,6 +702,7 @@ export default {
     },
   },
 };
+
 
 </script>
 

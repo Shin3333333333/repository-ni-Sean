@@ -2,7 +2,14 @@
   <div class="login-wrapper">
     <div class="login-card">
       <h1 class="brand">timetable</h1>
-      <p class="subtitle">Enter Password</p>
+      <p class="subtitle">Enter Email & Password</p>
+
+      <input
+        v-model="email"
+        type="email"
+        class="password-input"
+        placeholder="Email"
+      />
 
       <input
         v-model="password"
@@ -20,24 +27,36 @@
 </template>
 
 <script>
+import axios from "axios";
+
 export default {
-  name: 'Login',
+  name: "Login",
   data() {
     return {
-      password: '',
-      error: '',
+      email: "",
+      password: "",
+      error: "",
     };
   },
   methods: {
-    checkPassword() {
-      const correctPassword = 'admin123'; // whatever
-      if (this.password === correctPassword) {
+    async checkPassword() {
+      try {
+        await axios.get('/sanctum/csrf-cookie');
+        const res = await axios.post("/login", {
+          email: this.email,
+          password: this.password
+        });
         localStorage.setItem('timetableAuth', 'true');
-        
-        this.$router.push('/schedule').catch(() => {});
-      } else {
-        this.error = 'Incorrect password. Try again.';
-        this.password = '';
+
+        // Save token and set default Authorization header
+        localStorage.setItem("authToken", res.data.token);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
+
+        this.$router.push("/schedule");
+      } catch (err) {
+        console.log(err.response); // <-- Add this line to debug
+        this.error = "Incorrect email or password";
+        this.password = "";
       }
     },
   },
@@ -45,7 +64,6 @@ export default {
 </script>
 
 <style scoped>
-
 .login-wrapper {
   width: 100%;
   min-height: 100vh;

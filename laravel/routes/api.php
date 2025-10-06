@@ -1,4 +1,7 @@
 <?php
-Route::post('/upload-curriculum', [CurriculumController::class, 'upload']);
-Route::get('/curriculum/{id}', [CurriculumController::class, 'show']);
-?>
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Auth\LoginController;
+
+Route::post('/login', [LoginController::class, 'login']);
+Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth:sanctum');

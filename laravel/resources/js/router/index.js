@@ -27,10 +27,11 @@ const router = createRouter({
   routes,
 });
 
+// Route guard
 router.beforeEach((to, from, next) => {
   const publicPages = ['/login'];
   const authRequired = !publicPages.includes(to.path);
-  const isAuthenticated = localStorage.getItem('timetableAuth') === 'true';
+  const isAuthenticated = !!localStorage.getItem('authToken');
 
   if (authRequired && !isAuthenticated) {
     return next('/login');
