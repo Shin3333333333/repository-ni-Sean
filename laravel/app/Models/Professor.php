@@ -2,15 +2,24 @@
 
 namespace App\Models;
 
-  use Illuminate\Database\Eloquent\Factories\HasFactory;
-  use Illuminate\Database\Eloquent\Model;
-  class Professor extends Model
-  {
-      use HasFactory;
-      protected $fillable = ['name', 'specialty'];
-      public function schedules()
-      {
-          return $this->hasMany(Schedule::class);
-      }
-  }
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
+class Professor extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'name',
+        'type',
+        'department',
+        'max_load',
+        'status',
+        'time_unavailable'
+    ];
+
+    public function schedules()
+    {
+        return $this->hasMany(Schedule::class);
+    }
+}

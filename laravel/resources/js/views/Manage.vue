@@ -26,7 +26,8 @@
       <button class="add-btn" @click="addEntry">+ Add</button>
     </div>
 
-    <table v-if="activeTable === 'faculty'" class="styled-table">
+ <!-- Faculty Table -->
+<table v-if="activeTable === 'faculty'" class="styled-table">
   <thead>
     <tr>
       <th>Faculty</th>
@@ -39,23 +40,20 @@
     </tr>
   </thead>
   <tbody>
-    <tr v-for="(faculty, index) in facultyList" :key="faculty.id">
+    <tr v-for="faculty in facultyList" :key="faculty.id">
       <td>{{ faculty.name }}</td>
       <td>{{ faculty.type }}</td>
       <td>{{ faculty.department }}</td>
       <td>{{ faculty.max_load }}</td>
       <td>{{ faculty.time_unavailable }}</td>
       <td>
-        <span
-          class="status"
-          :class="faculty.status === 'Active' ? 'status-yes' : 'status-no'"
-        >
+        <span :class="faculty.status === 'Active' ? 'status-yes' : 'status-no'">
           {{ faculty.status }}
         </span>
       </td>
       <td>
-        <button @click="openEditFacultyModal(index)">Edit</button>
-        <button class="delete-btn" @click="removeEntry(index)">Delete</button>
+        <button @click="openEditFacultyModal(faculty)">Edit</button>
+        <button class="delete-btn" @click="removeEntry(faculty)">Delete</button>
       </td>
     </tr>
   </tbody>
@@ -73,21 +71,24 @@
   <!-- Room Table -->
     <tbody>
       <tr v-for="(room, index) in roomList" :key="room.id">
-        <td>{{ room.name }}</td>
-        <td>{{ room.capacity }}</td>
-        <td>{{ room.type }}</td>
-        <td>
-          <span class="status" :class="room.status === 'Available' ? 'status-yes' : 'status-no'">
-            {{ room.status }}
-          </span>
-        </td>
-        <td>
-          <button @click="openEditRoomModal(index)">Edit</button>
-          <button class="delete-btn" @click="removeEntry(index)">Delete</button>
-        </td>
-      </tr>
+  <td>{{ room.name }}</td>
+  <td>{{ room.capacity }}</td>
+  <td>{{ room.type }}</td>
+  <td>
+    <span class="status" :class="room.status === 'Available' ? 'status-yes' : 'status-no'">
+      {{ room.status }}
+    </span>
+  </td>
+ <td>
+  <button @click="openEditRoomModal(room)">Edit</button>
+  <button class="delete-btn" @click="removeEntry(room)">Delete</button>
+</td>
+
+</tr>
+
     </tbody>
 </table>
+<!-- Course Table -->
 <table v-if="activeTable === 'course'" class="styled-table">
   <thead>
     <tr>
@@ -101,25 +102,24 @@
     </tr>
   </thead>
   <tbody>
-    <tr v-for="(course, index) in courseList" :key="course.id">
+    <tr v-for="course in courseList" :key="course.id">
       <td>{{ course.name }}</td>
       <td>{{ course.year }}</td>
       <td>{{ course.department }}</td>
       <td>{{ course.students }}</td>
       <td>{{ course.adviser }}</td>
       <td>
-        <span class="status" :class="course.status === 'Active' ? 'status-yes' : 'status-no'">
+        <span :class="course.status === 'Active' ? 'status-yes' : 'status-no'">
           {{ course.status }}
         </span>
       </td>
       <td>
-        <button @click="openEditCourseModal(index)">Edit</button>
-        <button class="delete-btn" @click="removeEntry(index)">Delete</button>
+        <button @click="openEditCourseModal(course)">Edit</button>
+        <button class="delete-btn" @click="removeEntry(course)">Delete</button>
       </td>
     </tr>
   </tbody>
 </table>
-
 
 
 
@@ -443,8 +443,8 @@
 </div>
 
 
-<!-- Edit Room Modal -->
-<div v-if="showEditRoomModal" class="modal-overlay" @click="closeEditRoomModal">
+<!-- Room Edit Modal -->
+<div v-if="showEditRoomModal" class="modal-overlay" @click="closeRoomModal">
   <div class="modal-content" @click.stop>
     <h3>Edit Room</h3>
     <form @submit.prevent="updateRoom" class="grid-row gap-4">
@@ -468,7 +468,7 @@
         </select>
       </div>
       <div class="modal-buttons col-12 flex justify-end gap-2">
-        <button type="button" @click="closeEditRoomModal">Cancel</button>
+        <button type="button" @click="closeRoomModal">Cancel</button>
         <button type="submit">Save Changes</button>
       </div>
     </form>
@@ -553,32 +553,27 @@ export default {
 
   methods: {
     // --- LOAD DATA ---
-   async loadAllData() {
-  try {
-    const [facRes, roomRes, courseRes] = await Promise.all([
-      axios.get("http://localhost:8000/api/professors"),
-      axios.get("http://localhost:8000/api/rooms"),
-      axios.get("http://localhost:8000/api/courses"),
-    ]);
+    async loadAllData() {
+      try {
+        const [facRes, roomRes, courseRes] = await Promise.all([
+          axios.get("http://localhost:8000/api/professors"),
+          axios.get("http://localhost:8000/api/rooms"),
+          axios.get("http://localhost:8000/api/courses"),
+        ]);
 
-    console.log("facRes:", facRes.data);
-    console.log("roomRes:", roomRes.data);
-    console.log("courseRes:", courseRes.data);
-
-    this.facultyList = Array.isArray(facRes.data)
-      ? facRes.data
-      : facRes.data.data;
-    this.roomList = Array.isArray(roomRes.data)
-      ? roomRes.data
-      : roomRes.data.data;
-    this.courseList = Array.isArray(courseRes.data)
-      ? courseRes.data
-      : courseRes.data.data;
-  } catch (err) {
-    console.error("Failed to load data:", err);
-  }
-}
-,
+        this.facultyList = Array.isArray(facRes.data)
+          ? facRes.data
+          : facRes.data.data;
+        this.roomList = Array.isArray(roomRes.data)
+          ? roomRes.data
+          : roomRes.data.data;
+        this.courseList = Array.isArray(courseRes.data)
+          ? courseRes.data
+          : courseRes.data.data;
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      }
+    },
 
     // --- ADD ENTRY ---
     addEntry() {
@@ -587,127 +582,112 @@ export default {
       else if (this.activeTable === "room") this.showRoomModal = true;
     },
 
-    async addFaculty() {
-      try {
-        const res = await axios.post("/api/professors", {
-          name: this.facultyForm.name,
-          type: this.facultyForm.type,
-          department: this.facultyForm.department,
-          max_load: this.facultyForm.maxLoad,
-          status: this.facultyForm.status,
-          time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
-        });
+    // --- ADD FACULTY ---
+  // --- ADD FACULTY ---
+  addFaculty() {
+    const payload = {
+      name: this.facultyForm.name,
+      type: this.facultyForm.type,
+      department: this.facultyForm.department,
+      max_load: this.facultyForm.maxLoad,
+      status: this.facultyForm.status,
+      time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
+    };
+
+    axios.post("/api/professors", payload)
+      .then(res => {
         this.facultyList.push(res.data);
         this.closeFacultyModal();
-      } catch (err) {
-        console.error("Failed to add faculty:", err);
-      }
-    },
+      })
+      .catch(err => {
+        console.error("Failed to add faculty:", err.response?.data || err);
+        alert("Failed to add faculty");
+      });
+  },
 
-    async addCourse() {
-      try {
-        const res = await axios.post("/api/courses", {
-          name: this.courseForm.courseName,
-          section: this.courseForm.section,
-          year: this.courseForm.yearLevel,
-          department: this.courseForm.department,
-          adviser: this.courseForm.adviser,
-          curriculum: this.courseForm.curriculum,
+    // --- ADD COURSE ---
+    addCourse() {
+      axios.post('/api/courses', this.courseForm)
+        .then(res => {
+          if (Array.isArray(this.courseList)) {
+            this.courseList.push(res.data);
+          } else {
+            this.courseList = [res.data];
+          }
+          this.closeCourseModal();
+        })
+        .catch(err => {
+          console.error('Failed to add course:', err);
+          alert('Failed to add course');
         });
-        this.courseList.push(res.data);
-        this.closeCourseModal();
-      } catch (err) {
-        console.error("Failed to add course:", err);
-      }
     },
 
-    // ✅ FIXED ADD ROOM
+    // --- ADD ROOM ---
     addRoom() {
-  axios.post('/api/rooms', this.roomForm)
-    .then(res => {
-      // ✅ Make sure roomList exists and is reactive
-      if (Array.isArray(this.roomList)) {
-        this.roomList.push(res.data);
-      } else {
-        this.roomList = [res.data];
-      }
-
-      // ✅ Close modal and reset form
-      this.closeRoomModal();
-
-      // ✅ Do NOT immediately re-fetch; rely on reactive update
-      // But if you still want to sync with DB, delay a bit:
-      // setTimeout(() => this.getRooms(), 300);
-
-    })
-    .catch(err => {
-      console.error('Failed to add room:', err);
-      alert('Failed to add room');
-    });
-},
-
-addRoom() {
-  axios.post('/api/rooms', this.roomForm)
-    .then(res => {
-      // ✅ Make sure roomList exists and is reactive
-      if (Array.isArray(this.roomList)) {
-        this.roomList.push(res.data);
-      } else {
-        this.roomList = [res.data];
-      }
-
-      // ✅ Close modal and reset form
-      this.closeRoomModal();
-
-      // ✅ Do NOT immediately re-fetch; rely on reactive update
-      // But if you still want to sync with DB, delay a bit:
-      // setTimeout(() => this.getRooms(), 300);
-
-    })
-    .catch(err => {
-      console.error('Failed to add room:', err);
-      alert('Failed to add room');
-    });
-}
-,
-// ✅ Refresh room list from DB
-// ✅ Refresh room list from DB
-async refreshRooms() {
-  try {
-    const res = await axios.get("http://localhost:8000/api/rooms"); // ✅ Use GET, not POST
-    this.roomList = Array.isArray(res.data) ? res.data : res.data.data; // handle pagination or plain array
-    console.log("Room list refreshed:", this.roomList);
-  } catch (err) {
-    console.error("Failed to refresh room list:", err);
-  }
-},
-
-
-
-    // --- EDIT ENTRY ---
-    openEditFacultyModal(faculty) {
-      this.facultyForm = { ...faculty };
-      this.editFacultyId = faculty.id;
-      this.showEditFacultyModal = true;
-    },
-
-    async updateFaculty() {
-      try {
-        const res = await axios.put(`/api/professors/${this.editFacultyId}`, {
-          name: this.facultyForm.name,
-          type: this.facultyForm.type,
-          department: this.facultyForm.department,
-          max_load: this.facultyForm.maxLoad,
-          status: this.facultyForm.status,
-          time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
+      axios.post('/api/rooms', this.roomForm)
+        .then(res => {
+          if (Array.isArray(this.roomList)) {
+            this.roomList.push(res.data);
+          } else {
+            this.roomList = [res.data];
+          }
+          this.closeRoomModal();
+        })
+        .catch(err => {
+          console.error('Failed to add room:', err);
+          alert('Failed to add room');
         });
-        const index = this.facultyList.findIndex(f => f.id === this.editFacultyId);
-        this.facultyList.splice(index, 1, res.data);
-        this.closeFacultyModal();
+    },
+
+    // --- REFRESH ROOMS ---
+    async refreshRooms() {
+      try {
+        const res = await axios.get("http://localhost:8000/api/rooms");
+        this.roomList = Array.isArray(res.data) ? res.data : res.data.data;
       } catch (err) {
-        console.error("Failed to update faculty:", err);
+        console.error("Failed to refresh room list:", err);
       }
     },
+
+  openEditFacultyModal(faculty) {
+    // Fill form with current values
+    this.facultyForm = {
+      name: faculty.name,
+      type: faculty.type,
+      department: faculty.department,
+      maxLoad: faculty.max_load || 1,
+      status: faculty.status || "Active",
+      day: faculty.time_unavailable ? faculty.time_unavailable.split(' ')[0] : "",
+      time: faculty.time_unavailable ? faculty.time_unavailable.split(' ')[1] : "",
+    };
+    this.editFacultyId = faculty.id;
+    this.showEditFacultyModal = true;
+  },
+
+
+  // --- UPDATE FACULTY ---
+  updateFaculty() {
+    const payload = {
+      name: this.facultyForm.name,
+      type: this.facultyForm.type,
+      department: this.facultyForm.department,
+      max_load: this.facultyForm.maxLoad,
+      status: this.facultyForm.status,
+      time_unavailable: `${this.facultyForm.day} ${this.facultyForm.time}`.trim(),
+    };
+
+    axios.put(`/api/professors/${this.editFacultyId}`, payload)
+      .then(res => {
+        const index = this.facultyList.findIndex(f => f.id === this.editFacultyId);
+        if (index > -1) this.facultyList.splice(index, 1, res.data);
+        this.closeFacultyModal();
+      })
+      .catch(err => {
+        console.error("Failed to update faculty:", err.response?.data || err);
+        alert("Failed to update faculty");
+      });
+  },
+
 
     openEditCourseModal(course) {
       this.courseForm = { ...course };
@@ -733,22 +713,31 @@ async refreshRooms() {
       }
     },
 
-   openEditRoomModal(index) {
-    const room = this.roomList[index];
-    this.editRoomForm = { ...room }; // copy existing room data
-    this.showEditRoomModal = true;
-  },
+// --- Open Edit Modal ---
+openEditRoomModal(room) {
+  // Copy the existing room data into editRoomForm
+  this.editRoomForm = { ...room };
+  this.editRoomId = room.id;
+  this.showEditRoomModal = true;
+},
 
-    async updateRoom() {
-      try {
-        const res = await axios.put(`/api/rooms/${this.editRoomId}`, this.roomForm);
-        const index = this.roomList.findIndex(r => r.id === this.editRoomId);
-        this.roomList.splice(index, 1, res.data);
-        this.closeRoomModal();
-      } catch (err) {
-        console.error("Failed to update room:", err);
-      }
-    },
+// --- Update Room ---
+async updateRoom() {
+  try {
+    const res = await axios.put(`/api/rooms/${this.editRoomId}`, this.editRoomForm);
+
+    // Find the room in roomList and update it
+    const index = this.roomList.findIndex(r => r.id === this.editRoomId);
+    if (index > -1) {
+      this.roomList.splice(index, 1, res.data);
+    }
+
+    this.closeRoomModal();
+  } catch (err) {
+    console.error("Failed to update room:", err.response?.data || err);
+    alert("Failed to update room");
+  }
+},
 
     // --- DELETE ENTRY ---
     async removeEntry(item) {
@@ -781,19 +770,28 @@ async refreshRooms() {
       this.resetFacultyForm();
       document.body.classList.remove("modal-open");
     },
+
     closeCourseModal() {
       this.showCourseModal = false;
       this.showEditCourseModal = false;
       this.resetCourseForm();
       document.body.classList.remove("modal-open");
     },
+
+    // --- Close Room Modal ---
     closeRoomModal() {
       this.showRoomModal = false;
       this.showEditRoomModal = false;
       this.resetRoomForm();
+      this.editRoomForm = {}; // clear edit form
       document.body.classList.remove("modal-open");
     },
 
+    // --- Reset Room Form ---
+    resetRoomForm() {
+      this.roomForm = { name: "", capacity: 1, type: "", status: "Available" };
+      this.editRoomForm = { name: "", capacity: 1, type: "", status: "Available" };
+    },
     // --- RESET FORMS ---
     resetFacultyForm() {
       this.facultyForm = { name: "", type: "", department: "", maxLoad: 1, status: "", day: "", time: "" };
@@ -807,6 +805,7 @@ async refreshRooms() {
   },
 };
 </script>
+
 
 
 
