@@ -18,8 +18,7 @@ class Course extends Model
         'curriculum',
     ];
 
-    // Add relationships if needed, e.g.
-    // public function subjects() {
-    //     return $this->hasMany(Subject::class);
-    // }
+   public function subjects() {
+        return $this->hasMany(Subject::class);
+    }
 }

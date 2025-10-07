@@ -20,3 +20,4 @@ Route::apiResource('subjects', SubjectsController::class);
 Route::apiResource('schedules', SchedulesController::class);
 Route::apiResource('error-logs', ErrorLogsController::class);
 Route::apiResource('rooms', RoomsController::class);
+

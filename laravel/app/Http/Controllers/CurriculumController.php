@@ -1,35 +1,44 @@
 <?php
+
+namespace App\Http\Controllers;
+
 use Illuminate\Http\Request;
-use App\Models\Curriculum;
+use App\Models\Course;
 use App\Models\Subject;
 
 class CurriculumController extends Controller
 {
-    public function upload(Request $request)
+    public function upload(Request $request, $courseId)
     {
-        $file = $request->file('file');
-        $filename = time().'_'.$file->getClientOriginalName();
-        $path = $file->storeAs('curriculums', $filename, 'public');
-
-        $curriculum = Curriculum::create([
-            'name' => $filename,
-            'file_path' => $path
+        $request->validate([
+            'curriculum' => 'required|file|mimes:csv,txt',
         ]);
 
-        // Optionally parse the file to extract subjects automatically
+        $course = Course::findOrFail($courseId);
 
-        return response()->json(['curriculum_id' => $curriculum->id]);
+        $file = $request->file('curriculum');
+        $text = file_get_contents($file->getRealPath());
+        $lines = explode("\n", $text);
+
+        $subjects = [];
+        foreach ($lines as $line) {
+            $columns = str_getcsv($line);
+            $name = trim($columns[0]);
+            if ($name) {
+                $subject = Subject::firstOrCreate([
+                    'course_id' => $course->id,
+                    'name' => $name,
+                ]);
+                $subjects[] = $subject;
+            }
+        }
+
+        return response()->json($subjects);
     }
 
-    public function show($id)
+    public function getSubjects($courseId)
     {
-        $curriculum = Curriculum::findOrFail($id);
-        $subjects = Subject::where('curriculum_id', $id)->get();
-
-        return response()->json([
-            'curriculum' => $curriculum,
-            'subjects' => $subjects
-        ]);
+        $course = Course::findOrFail($courseId);
+        return response()->json($course->subjects);
     }
 }
-?>
