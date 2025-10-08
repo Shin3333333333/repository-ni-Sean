@@ -8,6 +8,7 @@ use App\Http\Controllers\SubjectsController;
 use App\Http\Controllers\SchedulesController;
 use App\Http\Controllers\ErrorLogsController;
 use App\Http\Controllers\RoomsController;
+use App\Http\Controllers\CurriculumController;
 
 /* ----------------- AUTH ----------------- */
 Route::post('/login', [LoginController::class, 'login']);
@@ -20,4 +21,11 @@ Route::apiResource('subjects', SubjectsController::class);
 Route::apiResource('schedules', SchedulesController::class);
 Route::apiResource('error-logs', ErrorLogsController::class);
 Route::apiResource('rooms', RoomsController::class);
+
+
+
+Route::get('/curriculums', [CurriculumController::class, 'index']);
+Route::post('/curriculums', [CurriculumController::class, 'store']);
+Route::delete('/curriculums/{id}', [CurriculumController::class, 'destroy']);
+
 

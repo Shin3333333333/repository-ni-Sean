@@ -3,42 +3,55 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Course;
-use App\Models\Subject;
+use App\Models\Curriculum;
+use Illuminate\Support\Facades\Storage;
 
 class CurriculumController extends Controller
 {
-    public function upload(Request $request, $courseId)
+    // 🧾 Get all curriculums
+    public function index()
     {
-        $request->validate([
-            'curriculum' => 'required|file|mimes:csv,txt',
-        ]);
-
-        $course = Course::findOrFail($courseId);
-
-        $file = $request->file('curriculum');
-        $text = file_get_contents($file->getRealPath());
-        $lines = explode("\n", $text);
-
-        $subjects = [];
-        foreach ($lines as $line) {
-            $columns = str_getcsv($line);
-            $name = trim($columns[0]);
-            if ($name) {
-                $subject = Subject::firstOrCreate([
-                    'course_id' => $course->id,
-                    'name' => $name,
-                ]);
-                $subjects[] = $subject;
-            }
-        }
-
-        return response()->json($subjects);
+        return Curriculum::all();
     }
 
-    public function getSubjects($courseId)
+    // 📤 Upload and save a curriculum file
+    public function store(Request $request)
     {
-        $course = Course::findOrFail($courseId);
-        return response()->json($course->subjects);
+        // Validate that a file is present
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,csv,xls|max:2048',
+        ]);
+
+        $file = $request->file('file');
+        $filename = time() . '_' . $file->getClientOriginalName();
+
+        // Save file to storage/app/public/curriculums
+        $path = $file->storeAs('curriculums', $filename, 'public');
+
+        // Create DB record
+        $curriculum = Curriculum::create([
+            'name' => $file->getClientOriginalName(),
+            'file_path' => $path,
+        ]);
+
+        return response()->json([
+            'message' => 'Curriculum uploaded successfully!',
+            'data' => $curriculum
+        ]);
+    }
+
+    // ❌ Delete a curriculum
+    public function destroy($id)
+    {
+        $curriculum = Curriculum::findOrFail($id);
+
+        // Delete file if exists
+        if ($curriculum->file_path && Storage::disk('public')->exists($curriculum->file_path)) {
+            Storage::disk('public')->delete($curriculum->file_path);
+        }
+
+        $curriculum->delete();
+
+        return response()->json(['message' => 'Curriculum deleted successfully']);
     }
 }
