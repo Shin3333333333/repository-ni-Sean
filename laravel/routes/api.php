@@ -26,6 +26,7 @@ Route::apiResource('rooms', RoomsController::class);
 
 Route::get('/curriculums', [CurriculumController::class, 'index']);
 Route::post('/curriculums', [CurriculumController::class, 'store']);
+Route::get('/curriculums/{id}/subjects', [CurriculumController::class, 'subjects']);
 Route::delete('/curriculums/{id}', [CurriculumController::class, 'destroy']);
 
 

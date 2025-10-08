@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
+import '../css/manage.css';
 import axios from 'axios'; // <-- import axios
 
 // Set Axios default Authorization header if token exists
