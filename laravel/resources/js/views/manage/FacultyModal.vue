@@ -1,12 +1,14 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click="$emit('update:show', false)">
+  <div v-if="show" class="modal-overlay" @click="closeModal">
     <div class="modal-content" @click.stop>
       <h3>{{ form.id ? 'Edit Faculty' : 'Add Faculty' }}</h3>
-      <form @submit.prevent="submitForm" class="grid-row gap-4">
+
+      <form @submit.prevent="handleSubmit" class="grid-row gap-4">
         <div class="form-group col-6">
           <label>Faculty Name:</label>
           <input v-model="form.name" type="text" required />
         </div>
+
         <div class="form-group col-6">
           <label>Type:</label>
           <select v-model="form.type" required>
@@ -15,14 +17,17 @@
             <option value="Part-time">Part-time</option>
           </select>
         </div>
+
         <div class="form-group col-6">
           <label>Department:</label>
           <input v-model="form.department" type="text" required />
         </div>
+
         <div class="form-group col-6">
           <label>Max Load:</label>
           <input v-model.number="form.maxLoad" type="number" min="1" required />
         </div>
+
         <div class="form-group col-6">
           <label>Status:</label>
           <select v-model="form.status" required>
@@ -31,6 +36,7 @@
             <option value="Inactive">Inactive</option>
           </select>
         </div>
+
         <div class="form-group col-6">
           <label>Time Unavailable:</label>
           <div class="grid-row gap-2">
@@ -43,11 +49,17 @@
               <option value="F">Friday</option>
               <option value="Sat">Saturday</option>
             </select>
-            <input class="col-6" v-model="form.time" type="text" placeholder="e.g., 1-3PM" />
+            <input
+              class="col-6"
+              v-model="form.time"
+              type="text"
+              placeholder="e.g., 1-3PM"
+            />
           </div>
         </div>
+
         <div class="modal-buttons col-12 flex justify-end gap-2">
-          <button type="button" @click="$emit('update:show', false)">Cancel</button>
+          <button type="button" @click="closeModal">Cancel</button>
           <button type="submit">{{ form.id ? 'Update' : 'Add' }}</button>
         </div>
       </form>
@@ -56,7 +68,7 @@
 </template>
 
 <script>
-import axios from 'axios';
+import axios from "axios";
 
 export default {
   name: "FacultyModal",
@@ -65,7 +77,10 @@ export default {
     form: Object
   },
   methods: {
-    async submitForm() {
+    closeModal() {
+      this.$emit("update:show", false);
+    },
+    async handleSubmit() {
       try {
         const payload = {
           name: this.form.name,
@@ -73,7 +88,7 @@ export default {
           department: this.form.department,
           max_load: this.form.maxLoad,
           status: this.form.status,
-          time_unavailable: `${this.form.day} ${this.form.time}`.trim(),
+          time_unavailable: `${this.form.day || ''} ${this.form.time || ''}`.trim()
         };
 
         let res;
@@ -84,7 +99,7 @@ export default {
         }
 
         this.$emit("submit", res.data);
-        this.$emit("update:show", false);
+        this.closeModal();
       } catch (err) {
         console.error(err);
         alert("Failed to save faculty");

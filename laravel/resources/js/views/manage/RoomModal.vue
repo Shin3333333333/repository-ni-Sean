@@ -1,20 +1,24 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click="$emit('update:show', false)">
+  <div v-if="show" class="modal-overlay" @click="closeModal">
     <div class="modal-content" @click.stop>
       <h3>{{ form.id ? 'Edit Room' : 'Add Room' }}</h3>
-      <form @submit.prevent="submitForm" class="grid-row gap-4">
+
+      <form @submit.prevent="handleSubmit" class="grid-row gap-4">
         <div class="form-group col-6">
           <label>Room Name:</label>
           <input v-model="form.name" type="text" required />
         </div>
+
         <div class="form-group col-6">
           <label>Capacity:</label>
           <input v-model.number="form.capacity" type="number" min="1" required />
         </div>
+
         <div class="form-group col-6">
           <label>Type:</label>
           <input v-model="form.type" type="text" required />
         </div>
+
         <div class="form-group col-6">
           <label>Status:</label>
           <select v-model="form.status" required>
@@ -22,8 +26,9 @@
             <option value="Unavailable">Unavailable</option>
           </select>
         </div>
+
         <div class="modal-buttons col-12 flex justify-end gap-2">
-          <button type="button" @click="$emit('update:show', false)">Cancel</button>
+          <button type="button" @click="closeModal">Cancel</button>
           <button type="submit">{{ form.id ? 'Update' : 'Add' }}</button>
         </div>
       </form>
@@ -41,7 +46,10 @@ export default {
     form: Object
   },
   methods: {
-    async submitForm() {
+    closeModal() {
+      this.$emit("update:show", false);
+    },
+    async handleSubmit() {
       try {
         let res;
         if (this.form.id) {
@@ -49,8 +57,9 @@ export default {
         } else {
           res = await axios.post("/api/rooms", this.form);
         }
+
         this.$emit("submit", res.data);
-        this.$emit("update:show", false);
+        this.closeModal();
       } catch (err) {
         console.error(err);
         alert("Failed to save room");

@@ -27,7 +27,7 @@
       :course-list="courseList"
       :curriculum-list="curriculumList"
       @edit="openEditCourseModal"
-      @delete="removeCourse"
+      @delete="removeEntry"
     />
 
     <!-- Modals -->
@@ -48,7 +48,6 @@
       @submit="updateLists('course', $event)"
       @upload="handleCurriculumUpload"
     />
-
   </div>
 </template>
 
@@ -86,9 +85,37 @@ export default {
   },
   methods: {
     addEntry() {
-      if (this.activeTable === "faculty") this.showFacultyModal = true;
-      else if (this.activeTable === "room") this.showRoomModal = true;
-      else if (this.activeTable === "course") this.showCourseModal = true;
+      if (this.activeTable === "faculty") {
+        // reset faculty form
+        this.facultyForm = {
+          name: "",
+          type: "",
+          department: "",
+          maxLoad: 1,
+          status: "Active",
+          day: "",
+          time: ""
+        };
+        this.showFacultyModal = true;
+      } else if (this.activeTable === "room") {
+        // reset room form
+        this.roomForm = {
+          name: "",
+          capacity: 1,
+          type: "",
+          status: "Available"
+        };
+        this.showRoomModal = true;
+      } else if (this.activeTable === "course") {
+        // reset course form
+        this.courseForm = {
+          name: "",
+          year: "",
+          students: 1,
+          curriculum_id: null
+        };
+        this.showCourseModal = true;
+      }
     },
     async loadAllData() {
       try {
@@ -138,23 +165,34 @@ export default {
       } catch (err) { console.error("Delete failed:", err); }
     },
     updateLists(type, item) {
-      if (type === "faculty") {
-        const idx = this.facultyList.findIndex(f => f.id === item.id);
-        if (idx > -1) this.facultyList.splice(idx, 1, item);
-        else this.facultyList.push(item);
-      } else if (type === "room") {
-        const idx = this.roomList.findIndex(r => r.id === item.id);
-        if (idx > -1) this.roomList.splice(idx, 1, item);
-        else this.roomList.push(item);
-      } else if (type === "course") {
-        const idx = this.courseList.findIndex(c => c.id === item.id);
-        if (idx > -1) this.courseList.splice(idx, 1, item);
-        else this.courseList.push(item);
-      }
+  if (!item.id) return; // don't add if ID is missing
+  if (type === "faculty") {
+    const idx = this.facultyList.findIndex(f => f.id === item.id);
+    if (idx > -1) this.facultyList.splice(idx, 1, item);
+    else this.facultyList.push(item);
+  } else if (type === "room") {
+    const idx = this.roomList.findIndex(r => r.id === item.id);
+    if (idx > -1) this.roomList.splice(idx, 1, item);
+    else this.roomList.push(item);
+  } else if (type === "course") {
+    const idx = this.courseList.findIndex(c => c.id === item.id);
+    if (idx > -1) this.courseList.splice(idx, 1, item);
+    else this.courseList.push(item);
+  }
+},
+
+    openEditFacultyModal(faculty) {
+      this.facultyForm = { ...faculty };
+      this.showFacultyModal = true;
     },
-    openEditFacultyModal(faculty) { this.facultyForm = { ...faculty }; this.showFacultyModal = true; },
-    openEditRoomModal(room) { this.roomForm = { ...room }; this.showRoomModal = true; },
-    openEditCourseModal(course) { this.courseForm = { ...course }; this.showCourseModal = true; },
+    openEditRoomModal(room) {
+      this.roomForm = { ...room };
+      this.showRoomModal = true;
+    },
+    openEditCourseModal(course) {
+      this.courseForm = { ...course };
+      this.showCourseModal = true;
+    },
   }
 };
 </script>
