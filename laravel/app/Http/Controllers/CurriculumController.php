@@ -5,14 +5,22 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Curriculum;
 use App\Models\Subject;
+use App\Models\Semester;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use Illuminate\Support\Facades\Storage;
 
 class CurriculumController extends Controller
 {
-    // Upload a curriculum XLSX
+    // Get all curricula
+    public function index()
+    {
+        $curricula = Curriculum::all();
+        return response()->json($curricula);
+    }
+
+    // Upload a curriculum XLSX and store subjects
     public function store(Request $request)
     {
+        // Validate uploaded file
         $request->validate([
             'file' => 'required|file|mimes:xlsx,xls',
         ]);
@@ -23,37 +31,54 @@ class CurriculumController extends Controller
 
         // Save curriculum record
         $curriculum = Curriculum::create([
-                'name' => $filename,
-                'file_path' => $path,
-            ]);
-
+            'name' => pathinfo($filename, PATHINFO_FILENAME),
+            'file_path' => $path,
+        ]);
 
         // Parse XLSX
         $spreadsheet = IOFactory::load($file->getPathname());
         $sheet = $spreadsheet->getActiveSheet();
         $rows = $sheet->toArray();
 
-        // Assuming first row is headers, skip it
-        foreach($rows as $index => $row) {
-            if ($index === 0) continue;
+        $currentSemesterId = null;
 
+        foreach ($rows as $index => $row) {
+            // Skip completely empty rows
+            if (!array_filter($row)) continue;
+
+            // Detect semester row
+            $possibleSemester = trim($row[0] ?? '');
+            $semester = Semester::where('name', $possibleSemester)->first();
+            if ($semester) {
+                $currentSemesterId = $semester->id;
+                continue; // skip this row, it's a semester header
+            }
+
+            // Skip table header rows
+            if (str_contains(strtolower($row[1] ?? ''), 'subject code')) continue;
+
+            // Insert subject
             Subject::create([
-                'curriculum_id' => $curriculum->id, // link to curriculum
-                'code' => $row[0] ?? null,          // Subject Code
-                'name' => $row[1] ?? null,          // Title
-                'units' => $row[2] ?? null,         // Units
-                'semester' => $row[3] ?? null,      // Semester
-                'year_level' => $row[4] ?? null,    // Year Level
+                'curriculum_id' => $curriculum->id,
+                'course_id'     => null, // assign later when course is created
+                'year_level'    => $row[0] ?? null,
+                'semester_id'   => $currentSemesterId,
+                'subject_code'  => $row[1] ?? null,
+                'subject_title' => $row[2] ?? null,
+                'units'         => isset($row[3]) ? (int)$row[3] : null,
+                'hours'         => isset($row[4]) ? (int)$row[4] : null,
+                'pre-requisite' => $row[5] ?? null,
+                'type'          => $row[6] ?? null,
             ]);
         }
 
         return response()->json([
-            'message' => 'Curriculum uploaded and subjects stored',
+            'message' => 'Curriculum uploaded and subjects stored successfully',
             'curriculum' => $curriculum,
         ]);
     }
 
-    // Get subjects for a curriculum (for frontend)
+    // Get subjects for a curriculum
     public function subjects($curriculum_id)
     {
         $subjects = Subject::where('curriculum_id', $curriculum_id)->get();

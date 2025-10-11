@@ -27,7 +27,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import api from "../axios"; // ✅ uses shared axios setup
 
 export default {
   name: "Login",
@@ -40,22 +40,33 @@ export default {
   },
   methods: {
     async checkPassword() {
+      this.error = "";
       try {
-     
-        const res = await axios.post("http://localhost:8000/login",{
+        // ✅ Make login request to Laravel backend
+        const res = await api.post("/login", {
           email: this.email,
-          password: this.password
+          password: this.password,
         });
-        localStorage.setItem('timetableAuth', 'true');
 
-        // Save token and set default Authorization header
+        console.log("✅ Login successful:", res.data);
+
+        // ✅ Save token & set default header for future requests
         localStorage.setItem("authToken", res.data.token);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
+        api.defaults.headers.common["Authorization"] = `Bearer ${res.data.token}`;
 
-        this.$router.push("/schedule");
+        // ✅ Redirect to dashboard
+        this.$router.push("/dashboard");
       } catch (err) {
-        console.log(err.response); // <-- Add this line to debug
-        this.error = "Incorrect email or password";
+        console.log("❌ Login error:", err.response);
+
+        if (err.response && err.response.status === 429) {
+          this.error = "Too many login attempts. Please wait a few seconds and try again.";
+        } else if (err.response && err.response.status === 401) {
+          this.error = "Incorrect email or password.";
+        } else {
+          this.error = "Something went wrong. Please try again.";
+        }
+
         this.password = "";
       }
     },
@@ -80,7 +91,7 @@ export default {
   border-radius: 22px;
   padding: 34px 28px;
   text-align: center;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
 }
 
 .brand {

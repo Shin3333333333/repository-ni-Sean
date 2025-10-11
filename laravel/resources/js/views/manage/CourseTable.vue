@@ -17,7 +17,7 @@
         <td>{{ course.curriculum ? course.curriculum.name : '-' }}</td>
         <td>
           <button @click="$emit('edit', course)">Edit</button>
-          <button class="delete-btn" @click="$emit('delete', course.id)">Delete</button>
+          <button class="delete-btn" @click="$emit('delete', course)">Delete</button>
         </td>
       </tr>
     </tbody>

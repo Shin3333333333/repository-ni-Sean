@@ -62,21 +62,23 @@ export default {
       sidebarOpen: false,
     };
   },
-  created() {
-    this.isAuthenticated = localStorage.getItem('timetableAuth') === 'true';
+created() {
+  const token = localStorage.getItem('authToken');
+  this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+},
+watch: {
+  $route() {
+    const token = localStorage.getItem('authToken');
+    this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+    this.sidebarOpen = false;
   },
-  watch: {
-    $route() {
-      this.isAuthenticated = localStorage.getItem('timetableAuth') === 'true';
-      this.sidebarOpen = false;
-    },
+},
+methods: {
+  logout() {
+    localStorage.removeItem('authToken');
+    this.isAuthenticated = false;
+    this.$router.push('/login').catch(() => {});
   },
-  methods: {
-    logout() {
-      localStorage.removeItem('timetableAuth');
-      this.isAuthenticated = false;
-      this.$router.push('/login').catch(() => {});
-    },
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen;
     },

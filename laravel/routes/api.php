@@ -11,7 +11,9 @@ use App\Http\Controllers\RoomsController;
 use App\Http\Controllers\CurriculumController;
 
 /* ----------------- AUTH ----------------- */
+// Temporarily remove throttle middleware for testing
 Route::post('/login', [LoginController::class, 'login']);
+
 Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth:sanctum');
 
 /* ----------------- RESOURCES ----------------- */
@@ -28,5 +30,12 @@ Route::get('/curriculums', [CurriculumController::class, 'index']);
 Route::post('/curriculums', [CurriculumController::class, 'store']);
 Route::get('/curriculums/{id}/subjects', [CurriculumController::class, 'subjects']);
 Route::delete('/curriculums/{id}', [CurriculumController::class, 'destroy']);
+
+Route::post('/courses', [CoursesController::class, 'store']);
+// routes/api.php
+Route::get('/semesters', function() {
+    return \App\Models\Semester::all();
+});
+Route::apiResource('courses', CoursesController::class);
 
 
