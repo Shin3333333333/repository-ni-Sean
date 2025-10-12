@@ -71,7 +71,23 @@
           class="form-group col-12"
           v-if="courseForm.id && courseForm.subjects && courseForm.subjects.length"
         >
-          <label>Subjects:</label>
+          <div class="flex justify-between items-center mb-1">
+            <label>Subjects:</label>
+
+            <!-- Semester Filter -->
+            <select v-model.number="selectedSemester" class="semester-filter">
+              <option value="">All Semesters</option>
+              <option
+                v-for="semester in semesterList"
+                :key="semester.id"
+                :value="Number(semester.id)"
+              >
+                {{ semester.name }}
+              </option>
+            </select>
+
+          </div>
+
           <div class="subject-table-wrapper">
             <table class="subject-table">
               <thead>
@@ -86,7 +102,7 @@
               </thead>
               <tbody>
                 <tr
-                  v-for="(subject, index) in courseForm.subjects"
+                  v-for="(subject, index) in filteredSubjects"
                   :key="subject.id || index"
                 >
                   <td><input v-model="subject.subject_code" type="text" required /></td>
@@ -119,9 +135,38 @@ export default {
   props: {
     show: Boolean,
     courseForm: Object,
-    curriculumList: Array
+    curriculumList: Array,
+    semesterList: Array
   },
   emits: ["update:show", "update:courseForm", "submit", "upload"],
+  data() {
+    return {
+      selectedSemester: ""  // currently selected semester
+    };
+  },
+  computed: {
+    // Filter subjects by selected semester
+    filteredSubjects() {
+      if (!this.selectedSemester) return this.courseForm.subjects || [];
+      return (this.courseForm.subjects || []).filter(
+        s => Number(s.semester_id) === this.selectedSemester
+      );
+    }
+  },
+  watch: {
+    // Initialize selectedSemester when modal opens or courseForm changes
+    courseForm: {
+      immediate: true,
+      handler(val) {
+        if (val.subjects && val.subjects.length) {
+          // Default to the semester of the first subject
+          this.selectedSemester = Number(val.subjects[0].semester_id);
+        } else {
+          this.selectedSemester = "";
+        }
+      }
+    }
+  },
   methods: {
     handleModalClick() {
       this.$emit("update:show", false);

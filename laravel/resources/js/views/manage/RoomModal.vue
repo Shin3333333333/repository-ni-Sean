@@ -50,21 +50,30 @@ export default {
       this.$emit("update:show", false);
     },
     async handleSubmit() {
-      try {
-        let res;
-        if (this.form.id) {
-          res = await axios.put(`/api/rooms/${this.form.id}`, this.form);
-        } else {
-          res = await axios.post("/api/rooms", this.form);
-        }
+  try {
+    const payload = {
+      name: this.form.name,
+      capacity: this.form.capacity,
+      type: this.form.type,
+      status: this.form.status,
+    };
 
-        this.$emit("submit", res.data);
-        this.closeModal();
-      } catch (err) {
-        console.error(err);
-        alert("Failed to save room");
-      }
+    let res;
+    if (this.form.id) {
+      res = await axios.put(`/api/rooms/${this.form.id}`, payload);
+    } else {
+      res = await axios.post("/api/rooms", payload);
     }
+
+    // Emit the saved object from API, not the form
+    this.$emit("submit", res.data);
+    this.closeModal();
+  } catch (err) {
+    console.error(err.response?.data || err);
+    alert("Failed to save room");
+  }
+}
+
   }
 };
 </script>

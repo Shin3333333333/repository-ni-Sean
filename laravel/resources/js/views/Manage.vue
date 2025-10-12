@@ -42,12 +42,14 @@
       @submit="room => updateLists('room', room)"
     />
     <CourseModal
-      v-model:show="showCourseModal"
-      v-model:courseForm="courseForm"
-      :curriculum-list="curriculumList"
-      @submit="updateLists('course', $event)"
-      @upload="handleCurriculumUpload"
-    />
+    v-model:show="showCourseModal"
+    v-model:courseForm="courseForm"
+    :curriculum-list="curriculumList"
+    :semester-list="semesterList"
+    @submit="updateLists('course', $event)"
+    @upload="handleCurriculumUpload"
+  />
+
 
   </div>
 </template>
@@ -179,38 +181,90 @@ export default {
 
     // ✅ UPDATED: handle both add & edit, and update subjects if present
     async updateLists(type, item) {
-      if (type === "course") {
-        if (!item.id) {
-          try {
-            const res = await axios.post("/api/courses", item);
-            const newCourse = res.data.course;
-            this.courseList.push(newCourse);
-          } catch (err) {
-            console.error("Failed to add course:", err.response?.data || err);
-            return;
-          }
-        } else {
-          // ✅ PUT request to save updated course + subjects
-          try {
-            const res = await axios.put(`/api/courses/${item.id}`, item);
-            const updatedCourse = res.data.course;
-            const idx = this.courseList.findIndex(c => c.id === updatedCourse.id);
-            if (idx > -1) this.courseList.splice(idx, 1, updatedCourse);
-          } catch (err) {
-            console.error("Failed to update course:", err.response?.data || err);
-            return;
-          }
-        }
-      } else if (type === "faculty") {
-        const idx = this.facultyList.findIndex(f => f.id === item.id);
-        if (idx > -1) this.facultyList.splice(idx, 1, item);
-        else this.facultyList.push(item);
-      } else if (type === "room") {
-        const idx = this.roomList.findIndex(r => r.id === item.id);
-        if (idx > -1) this.roomList.splice(idx, 1, item);
-        else this.roomList.push(item);
+  try {
+    let updated;
+
+    if (type === "course") {
+      // Already handled in your code (PUT/POST + subjects)
+      if (!item.id) {
+        const res = await axios.post("/api/courses", item);
+        updated = res.data.course;
+        this.courseList.push(updated);
+      } else {
+        const payload = {
+          ...item,
+          subjects: item.subjects?.map(s => {
+            const { created_at, updated_at, ...rest } = s;
+            return rest;
+          }),
+        };
+        const res = await axios.put(`/api/courses/${item.id}`, payload);
+        updated = res.data.course;
+        const idx = this.courseList.findIndex(c => c.id === updated.id);
+        if (idx > -1) this.courseList.splice(idx, 1, updated);
       }
-    },
+      this.courseForm = {};
+      this.showCourseModal = false;
+
+    } else if (type === "faculty") {
+      // Always update via API and get the response
+      if (!item.id) {
+        const res = await axios.post("/api/professors", {
+          name: item.name,
+          type: item.type,
+          department: item.department,
+          max_load: item.maxLoad,
+          status: item.status,
+          time_unavailable: (item.unavailableTimes || []).join(", "),
+        });
+        updated = res.data.data || res.data;
+        this.facultyList.push(updated);
+      } else {
+        const res = await axios.put(`/api/professors/${item.id}`, {
+          name: item.name,
+          type: item.type,
+          department: item.department,
+          max_load: item.maxLoad,
+          status: item.status,
+          time_unavailable: (item.unavailableTimes || []).join(", "),
+        });
+        updated = res.data.data || res.data;
+        const idx = this.facultyList.findIndex(f => f.id === updated.id);
+        if (idx > -1) this.facultyList.splice(idx, 1, updated);
+      }
+      this.facultyForm = {};
+      this.showFacultyModal = false;
+
+    } else if (type === "room") {
+      if (!item.id) {
+        const res = await axios.post("/api/rooms", {
+          name: item.name,
+          capacity: item.capacity,
+          type: item.type,
+          status: item.status,
+        });
+        updated = res.data.data || res.data;
+        this.roomList.push(updated);
+      } else {
+        const res = await axios.put(`/api/rooms/${item.id}`, {
+          name: item.name,
+          capacity: item.capacity,
+          type: item.type,
+          status: item.status,
+        });
+        updated = res.data.data || res.data;
+        const idx = this.roomList.findIndex(r => r.id === updated.id);
+        if (idx > -1) this.roomList.splice(idx, 1, updated);
+      }
+      this.roomForm = {};
+      this.showRoomModal = false;
+    }
+
+  } catch (err) {
+    console.error(`Failed to update ${type}:`, err.response?.data || err);
+  }
+},
+
 
     openEditFacultyModal(faculty) {
       this.facultyForm = { ...faculty };

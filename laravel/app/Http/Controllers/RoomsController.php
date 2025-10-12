@@ -20,7 +20,10 @@ class RoomsController extends Controller
         ]);
 
         $room = Room::create($request->only(['name','capacity','type','status']));
-        return response()->json($room, 201);
+       return response()->json([
+                'data' => $room,
+                'message' => 'Room created successfully'
+            ], 201);
     }
     public function destroy($id)
 {

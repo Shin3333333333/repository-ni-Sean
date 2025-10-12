@@ -27,7 +27,10 @@ class ProfessorsController extends Controller
             'name','type','department','max_load','status','time_unavailable'
         ]));
 
-        return response()->json($professor, 201);
+        return response()->json([
+                'data' => $professor,
+                'message' => 'Professor created successfully'
+            ], 201);
     }
 
     public function update(Request $request, $id)
