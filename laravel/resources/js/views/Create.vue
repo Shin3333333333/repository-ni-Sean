@@ -2,6 +2,8 @@
   <div class="create-page">
     <h2>Create</h2>
 
+    <button @click="generateSchedule" class="generate-btn">Generate Schedule</button>
+
     <form @submit.prevent="saveSchedule">
       <table border="1" cellpadding="5" cellspacing="0" class="create-table">
         <thead>
@@ -38,15 +40,7 @@
 export default {
   data() {
     return {
-      scheduleEntries: [
-        {
-          subject: '',
-          time: '',
-          classroom: '',
-          professor: '',
-          courseCode: '',
-        },
-      ],
+      scheduleEntries: [], // initially empty; will be filled by API
     };
   },
   methods: {
@@ -63,7 +57,6 @@ export default {
       this.scheduleEntries.splice(index, 1);
     },
     saveSchedule() {
-      
       const incomplete = this.scheduleEntries.some(
         (e) =>
           !e.subject ||
@@ -77,20 +70,31 @@ export default {
         return;
       }
 
-      // TODO: Send scheduleEntries to backend API or store in Vuex
+      // Here you can send scheduleEntries to your backend if needed
       console.log('Saving schedule:', this.scheduleEntries);
       alert('Schedule saved successfully!');
 
-      this.scheduleEntries = [
-        {
-          subject: '',
-          time: '',
-          classroom: '',
-          professor: '',
-          courseCode: '',
-        },
-      ];
+      this.scheduleEntries = [];
     },
+   async generateSchedule() {
+      try {
+        const res = await fetch("/api/generate-schedule"); // calls Laravel API
+        const generated = await res.json();
+
+        this.scheduleEntries = generated.map((s) => ({
+          subject: s.subject,
+          time: s.time,
+          classroom: s.room,
+          professor: s.faculty,
+          courseCode: s.course,
+        }));
+      } catch (err) {
+        console.error("Failed to generate schedule:", err);
+        alert("Could not generate schedule. Check console for errors.");
+      }
+    }
+
+,
   },
 };
 </script>
@@ -122,7 +126,8 @@ input {
 }
 
 .add-btn,
-.save-btn {
+.save-btn,
+.generate-btn {
   padding: 10px 16px;
   margin-right: 10px;
   border: none;
@@ -147,6 +152,16 @@ input {
 
 .save-btn:hover {
   background-color: #1f5f8b;
+}
+
+.generate-btn {
+  background-color: #f39c12;
+  color: white;
+  margin-bottom: 15px;
+}
+
+.generate-btn:hover {
+  background-color: #d68910;
 }
 
 button[type='button'] {

@@ -9,6 +9,7 @@ use App\Http\Controllers\SchedulesController;
 use App\Http\Controllers\ErrorLogsController;
 use App\Http\Controllers\RoomsController;
 use App\Http\Controllers\CurriculumController;
+use App\Http\Controllers\ScheduleController;
 
 /* ----------------- AUTH ----------------- */
 // Temporarily remove throttle middleware for testing
@@ -46,4 +47,4 @@ Route::get('/schedule/data', function () {
         'time_slots' => ['Mon 8-10', 'Mon 10-12', 'Tue 8-10', 'Tue 10-12'] // or from DB if you have one
     ]);
 });
-
+Route::get('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
