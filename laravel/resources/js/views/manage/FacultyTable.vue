@@ -36,7 +36,10 @@
 export default {
   name: "FacultyTable",
   props: {
-    facultyList: Array
+    facultyList: {
+      type: Array,
+      required: true
+    }
   }
 };
 </script>

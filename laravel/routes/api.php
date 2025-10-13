@@ -38,4 +38,12 @@ Route::get('/semesters', function() {
 });
 Route::apiResource('courses', CoursesController::class);
 
+Route::get('/schedule/data', function () {
+    return response()->json([
+        'courses' => App\Models\Course::with('subjects')->get(),
+        'faculty' => App\Models\Professor::all(),
+        'rooms' => App\Models\Room::all(),
+        'time_slots' => ['Mon 8-10', 'Mon 10-12', 'Tue 8-10', 'Tue 10-12'] // or from DB if you have one
+    ]);
+});
 

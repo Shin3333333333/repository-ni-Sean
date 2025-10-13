@@ -62,23 +62,23 @@ export default {
       sidebarOpen: false,
     };
   },
-created() {
-  const token = localStorage.getItem('authToken');
-  this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
-},
-watch: {
-  $route() {
+  created() {
     const token = localStorage.getItem('authToken');
     this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
-    this.sidebarOpen = false;
   },
-},
-methods: {
-  logout() {
-    localStorage.removeItem('authToken');
-    this.isAuthenticated = false;
-    this.$router.push('/login').catch(() => {});
+  watch: {
+    $route() {
+      const token = localStorage.getItem('authToken');
+      this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+      this.sidebarOpen = false;
+    },
   },
+  methods: {
+    logout() {
+      localStorage.removeItem('authToken');
+      this.isAuthenticated = false;
+      this.$router.push('/login').catch(() => {});
+    },
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen;
     },

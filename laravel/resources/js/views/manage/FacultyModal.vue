@@ -119,24 +119,27 @@ export default {
     },
     async handleSubmit() {
       try {
-        const payload = {
-          name: this.form.name,
-          type: this.form.type,
-          department: this.form.department,
-          max_load: this.form.maxLoad,
-          status: this.form.status,
-          time_unavailable: (this.form.unavailableTimes || []).join(", "),
-        };
+        // FacultyModal.vue -> handleSubmit
+const payload = {
+  name: this.form.name,
+  type: this.form.type,
+  department: this.form.department,
+  max_load: this.form.maxLoad,
+  status: this.form.status,
+  time_unavailable: (this.form.unavailableTimes || []).join(", "),
+};
 
-        let res;
-        if (this.form.id) {
-          res = await axios.put(`/api/professors/${this.form.id}`, payload);
-        } else {
-          res = await axios.post("/api/professors", payload);
-        }
+let res;
+if (this.form.id) {
+  res = await axios.put(`/api/professors/${this.form.id}`, payload);
+} else {
+  res = await axios.post("/api/professors", payload);
+}
 
-        this.$emit("submit", res.data);
-        this.closeModal();
+// Emit the saved object
+this.$emit("submit", res.data); // res.data now has id, fields, etc.
+this.closeModal();
+
       } catch (err) {
         console.error(err);
         alert("Failed to save faculty");
