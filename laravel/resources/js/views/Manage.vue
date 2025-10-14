@@ -229,20 +229,21 @@ export default {
 
         const data = res.data.data || res.data;
 
-        const prof = {
-          id: data.id,
-          name: data.name,
-          type: data.type,
-          department: data.department,
-          maxLoad: data.max_load,
-          status: data.status,
-          unavailableTimes: data.time_unavailable
-            ? data.time_unavailable.split(",").map(t => t.trim())
-            : [],
-          time_unavailable: data.time_unavailable || "",
-        };
+       const prof = {
+        id: data.id,
+        name: data.name,
+        type: data.type,
+        department: data.department,
+        max_load: data.max_load,          // ⚡ key must match table
+        status: data.status,
+        unavailableTimes: data.time_unavailable
+          ? data.time_unavailable.split(",").map(t => t.trim())
+          : [],
+        time_unavailable: data.time_unavailable || "",
+      };
 
-        if (!item.id) this.facultyList.push(prof);
+
+        if (!item.id) this.facultyList = [...this.facultyList, prof]; // force reactivity
         else {
           const idx = this.facultyList.findIndex(f => f.id === prof.id);
           if (idx > -1) this.facultyList.splice(idx, 1, prof);
@@ -282,11 +283,7 @@ export default {
         // const res = await axios.get(`/api/professors/${faculty.id}`);
         // this.selectedFaculty = res.data.data || res.data;
 
-      this.selectedFaculty = {
-      ...faculty,
-      unavailableTimes: faculty.unavailableTimes || [],
-      maxLoad: faculty.maxLoad ?? 1,
-    };
+        this.selectedFaculty = faculty; // populate the modal
         this.showFacultyModal = true;   // open the modal
       } finally {
         this.hide(); // hide loading

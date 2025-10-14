@@ -95,43 +95,42 @@ setup() {
 },
 
   data() {
-  return {
-    localForm: {
-      id: null,
-      name: "",
-      type: "Full-time",
-      department: "",
-      maxLoad: 1,
-      status: "Active",
-      unavailableTimes: [],
-    },
-    newUnavailable: { day: "", start: "", end: "" },
-    days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  };
-},
- watch: {
-  form: {
-    immediate: true,
-    handler(val) {
-      if (val) {
-        this.localForm = {
-          id: val.id || null,
-          name: val.name || "",
-          type: val.type || "Full-time",
-          department: val.department || "",
-          maxLoad: Number(val.max_load ?? val.maxLoad ?? 1),
-          status: val.status || "Active",
-          unavailableTimes: Array.isArray(val.unavailableTimes)
-            ? [...val.unavailableTimes]
-            : val.time_unavailable
-              ? val.time_unavailable.split(",").map(t => t.trim())
-              : [],
-        };
-      }
+    return {
+      days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+      newUnavailable: { day: "", start: "", end: "" },
+      localForm: {
+        id: null,
+        name: "",
+        type: "",
+        department: "",
+        maxLoad: 1,
+        status: "Active",
+        unavailableTimes: [],
+      },
+    };
+  },
+  watch: {
+    show: {
+      immediate: true,
+      handler(val) {
+        if (val) {
+          this.localForm = {
+            id: this.form?.id || null,
+            name: this.form?.name || "",
+            type: this.form?.type || "",
+            department: this.form?.department || "",
+            maxLoad: Number(this.form?.max_load ?? this.form?.maxLoad ?? 1),
+            status: this.form?.status || "Active",
+            unavailableTimes: Array.isArray(this.form?.unavailableTimes)
+              ? [...this.form.unavailableTimes]
+              : this.form?.time_unavailable
+                ? this.form.time_unavailable.split(",").map(t => t.trim())
+                : [],
+          };
+        }
+      },
     },
   },
-},
-
   methods: {
     closeModal() {
       this.$emit("update:show", false);
@@ -169,19 +168,25 @@ setup() {
         }
 
         const savedFaculty = {
-          id: res.data.data?.id || res.data.id,
-          name: res.data.data?.name || res.data.name,
-          type: res.data.data?.type || res.data.type,
-          department: res.data.data?.department || res.data.department,
-          maxLoad: res.data.data?.max_load || res.data.max_load,
-          status: res.data.data?.status || res.data.status,
-          unavailableTimes: (res.data.data?.time_unavailable || res.data.time_unavailable || "")
-                              .split(",")
-                              .map(s => s.trim())
-        };
+      id: res.data.data?.id || res.data.id,
+      name: res.data.data?.name || res.data.name,
+      type: res.data.data?.type || res.data.type,
+      department: res.data.data?.department || res.data.department,
+      maxLoad: res.data.data?.max_load || res.data.max_load,
+      status: res.data.data?.status || res.data.status,
+      unavailableTimes: (res.data.data?.time_unavailable || res.data.time_unavailable || "")
+                          .split(",")
+                          .map(s => s.trim())
+    };
 
 
-        this.$emit("submit", savedFaculty);
+            // FacultyModal.vue handleSubmit()
+      this.$emit("submit", {
+        ...this.localForm,
+        maxLoad: this.localForm.maxLoad,          // keep localForm keys
+        unavailableTimes: [...this.localForm.unavailableTimes]
+      });
+
         this.closeModal();
       } catch (err) {
         console.error(err);
