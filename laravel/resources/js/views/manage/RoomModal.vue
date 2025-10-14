@@ -52,10 +52,10 @@ export default {
     async handleSubmit() {
   try {
     const payload = {
-      name: this.form.name,
-      capacity: this.form.capacity,
-      type: this.form.type,
-      status: this.form.status,
+      name: this.form.name?.trim() || "",
+      capacity: Number(this.form.capacity) || 1,
+      type: this.form.type?.trim() || "",
+      status: ["Available","Unavailable"].includes(this.form.status) ? this.form.status : "Available",
     };
 
     let res;
@@ -65,14 +65,16 @@ export default {
       res = await axios.post("/api/rooms", payload);
     }
 
-    // Emit the saved object from API, not the form
-    this.$emit("submit", res.data);
+   // After preparing payload
+    this.$emit("submit", payload); // send the properly formatted object
+
     this.closeModal();
   } catch (err) {
-    console.error(err.response?.data || err);
-    alert("Failed to save room");
+    console.error("Failed to save room:", err.response?.data || err);
+    alert("Failed to save room. Check required fields!");
   }
 }
+
 
   }
 };

@@ -47,4 +47,4 @@ Route::get('/schedule/data', function () {
         'time_slots' => ['Mon 8-10', 'Mon 10-12', 'Tue 8-10', 'Tue 10-12'] // or from DB if you have one
     ]);
 });
-Route::get('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
+Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);

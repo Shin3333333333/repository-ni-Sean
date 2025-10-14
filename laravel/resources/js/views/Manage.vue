@@ -31,26 +31,30 @@
     />
 
     <!-- Modals -->
-    <FacultyModal
-      v-model:show="showFacultyModal"
-      v-model:form="facultyForm"
-      @submit="faculty => updateLists('faculty', faculty)"
-    />
+    <FacultyModal 
+  v-model:show="showFacultyModal"
+  :form="selectedFaculty"
+  @submit="faculty => updateLists('faculty', faculty)"
+/>
+
+
+
     <RoomModal
       v-model:show="showRoomModal"
       v-model:form="roomForm"
       @submit="room => updateLists('room', room)"
     />
     <CourseModal
-    v-model:show="showCourseModal"
-    v-model:courseForm="courseForm"
-    :curriculum-list="curriculumList"
-    :semester-list="semesterList"
-    @submit="updateLists('course', $event)"
-    @upload="handleCurriculumUpload"
-  />
+      v-model:show="showCourseModal"
+      v-model:courseForm="courseForm"
+      :curriculum-list="curriculumList"
+      :semester-list="semesterList"
+      @submit="updateLists('course', $event)"
+      @upload="handleCurriculumUpload"
+    />
 
-
+    <!-- Global Loading Modal -->
+    <LoadingModal />
   </div>
 </template>
 
@@ -61,11 +65,14 @@ import CourseTable from './manage/CourseTable.vue';
 import FacultyModal from './manage/FacultyModal.vue';
 import RoomModal from './manage/RoomModal.vue';
 import CourseModal from './manage/CourseModal.vue';
+import LoadingModal from '../components/LoadingModal.vue';
 import axios from "axios";
+import { useLoading } from '../composables/useLoading';
 
 export default {
   name: "Manage",
-  components: { FacultyTable, RoomTable, CourseTable, FacultyModal, RoomModal, CourseModal },
+  components: { FacultyTable, RoomTable, CourseTable, FacultyModal, RoomModal, CourseModal, LoadingModal },
+
   data() {
     return {
       activeTable: "faculty",
@@ -78,10 +85,15 @@ export default {
       showFacultyModal: false,
       showRoomModal: false,
       showCourseModal: false,
-      facultyForm: {},
       roomForm: {},
       courseForm: {},
+      selectedFaculty: { unavailableTimes: [], maxLoad: 1 }, // ✅ initiali
     };
+  },
+
+  setup() {
+    const { show, hide } = useLoading();
+    return { show, hide };
   },
 
   mounted() {
@@ -92,36 +104,26 @@ export default {
 
   methods: {
     addEntry() {
-      if (this.activeTable === "faculty") {
-        this.facultyForm = {
-          name: "",
-          type: "",
-          department: "",
-          maxLoad: 1,
-          status: "Active",
-          day: "",
-          time: ""
-        };
-        this.showFacultyModal = true;
-      } else if (this.activeTable === "room") {
-        this.roomForm = {
-          name: "",
-          capacity: 1,
-          type: "",
-          status: "Available"
-        };
-        this.showRoomModal = true;
-      } else if (this.activeTable === "course") {
-        this.courseForm = {
-          name: "",
-          year: "",
-          students: 1,
-          curriculum_id: null,
-          subjects: [] // ✅ include subjects field (for consistent structure)
-        };
-        this.showCourseModal = true;
-      }
-    },
+    if (this.activeTable === "faculty") {
+      // ✅ Full default object for Add Faculty
+      this.selectedFaculty = {
+        id: null,
+        name: "",
+        type: "Full-time",
+        department: "",
+        maxLoad: 1,
+        status: "Active",
+        unavailableTimes: [],
+      };
+      this.showFacultyModal = true;
+    } else if (this.activeTable === "room") {
+      this.roomForm = { name: "", capacity: 1, type: "", status: "Available" };
+      this.showRoomModal = true;
+    } else if (this.activeTable === "course") {
+      this.courseForm = { name: "", year: "", students: 1, curriculum_id: null, subjects: [] };
+      this.showCourseModal = true;
+    }
+  },
 
     async loadSemesters() {
       try {
@@ -164,6 +166,7 @@ export default {
       formData.append("file", file);
 
       try {
+        this.show(); // show loading
         const res = await axios.post("/api/curriculums", formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -176,100 +179,120 @@ export default {
         }
       } catch (err) {
         console.error("Upload failed:", err.response?.data || err);
+      } finally {
+        this.hide(); // hide loading
       }
     },
 
-    // ✅ UPDATED: handle both add & edit, and update subjects if present
     async updateLists(type, item) {
-  try {
-    let updated;
+      this.show(); // show loading
+      try {
+        let updated;
 
-    if (type === "course") {
-      // Already handled in your code (PUT/POST + subjects)
-      if (!item.id) {
-        const res = await axios.post("/api/courses", item);
-        updated = res.data.course;
-        this.courseList.push(updated);
-      } else {
+        if (type === "course") {
+          if (!item.id) {
+            const res = await axios.post("/api/courses", item);
+            updated = res.data.course;
+            this.courseList.push(updated);
+          } else {
+            const payload = {
+              ...item,
+              subjects: item.subjects?.map(s => {
+                const { created_at, updated_at, ...rest } = s;
+                return rest;
+              }),
+            };
+            const res = await axios.put(`/api/courses/${item.id}`, payload);
+            updated = res.data.course;
+            const idx = this.courseList.findIndex(c => c.id === updated.id);
+            if (idx > -1) this.courseList.splice(idx, 1, updated);
+          }
+          this.courseForm = {};
+          this.showCourseModal = false;
+
+        } else if (type === "faculty") {
+        let res;
         const payload = {
-          ...item,
-          subjects: item.subjects?.map(s => {
-            const { created_at, updated_at, ...rest } = s;
-            return rest;
-          }),
+          name: item.name,
+          type: item.type,
+          department: item.department,
+          max_load: item.maxLoad,
+          status: item.status,
+          time_unavailable: (item.unavailableTimes || []).join(", "),
         };
-        const res = await axios.put(`/api/courses/${item.id}`, payload);
-        updated = res.data.course;
-        const idx = this.courseList.findIndex(c => c.id === updated.id);
-        if (idx > -1) this.courseList.splice(idx, 1, updated);
-      }
-      this.courseForm = {};
-      this.showCourseModal = false;
 
-    } else if (type === "faculty") {
-      // Always update via API and get the response
-      if (!item.id) {
-        const res = await axios.post("/api/professors", {
-          name: item.name,
-          type: item.type,
-          department: item.department,
-          max_load: item.maxLoad,
-          status: item.status,
-          time_unavailable: (item.unavailableTimes || []).join(", "),
-        });
-        updated = res.data.data || res.data;
-        this.facultyList.push(updated);
-      } else {
-        const res = await axios.put(`/api/professors/${item.id}`, {
-          name: item.name,
-          type: item.type,
-          department: item.department,
-          max_load: item.maxLoad,
-          status: item.status,
-          time_unavailable: (item.unavailableTimes || []).join(", "),
-        });
-        updated = res.data.data || res.data;
-        const idx = this.facultyList.findIndex(f => f.id === updated.id);
-        if (idx > -1) this.facultyList.splice(idx, 1, updated);
-      }
-      this.facultyForm = {};
-      this.showFacultyModal = false;
+        if (!item.id) {
+          res = await axios.post("/api/professors", payload);
+        } else {
+          res = await axios.put(`/api/professors/${item.id}`, payload);
+        }
 
-    } else if (type === "room") {
-      if (!item.id) {
-        const res = await axios.post("/api/rooms", {
-          name: item.name,
-          capacity: item.capacity,
-          type: item.type,
-          status: item.status,
-        });
-        updated = res.data.data || res.data;
-        this.roomList.push(updated);
-      } else {
-        const res = await axios.put(`/api/rooms/${item.id}`, {
-          name: item.name,
-          capacity: item.capacity,
-          type: item.type,
-          status: item.status,
-        });
-        updated = res.data.data || res.data;
-        const idx = this.roomList.findIndex(r => r.id === updated.id);
-        if (idx > -1) this.roomList.splice(idx, 1, updated);
-      }
-      this.roomForm = {};
-      this.showRoomModal = false;
+        const data = res.data.data || res.data;
+
+        const prof = {
+          id: data.id,
+          name: data.name,
+          type: data.type,
+          department: data.department,
+          maxLoad: data.max_load,
+          status: data.status,
+          unavailableTimes: data.time_unavailable
+            ? data.time_unavailable.split(",").map(t => t.trim())
+            : [],
+          time_unavailable: data.time_unavailable || "",
+        };
+
+        if (!item.id) this.facultyList.push(prof);
+        else {
+          const idx = this.facultyList.findIndex(f => f.id === prof.id);
+          if (idx > -1) this.facultyList.splice(idx, 1, prof);
+        }
+
+        this.showFacultyModal = false
+
+
+      
     }
-
-  } catch (err) {
-    console.error(`Failed to update ${type}:`, err.response?.data || err);
+ else if (type === "room") {
+  if (!item.id) {
+    const res = await axios.post("/api/rooms", item); // item now has payload
+    updated = res.data.data || res.data;
+    this.roomList.push(updated);
+  } else {
+    const res = await axios.put(`/api/rooms/${item.id}`, item);
+    updated = res.data.data || res.data;
+    const idx = this.roomList.findIndex(r => r.id === updated.id);
+    if (idx > -1) this.roomList.splice(idx, 1, updated);
   }
-},
+  this.roomForm = {};
+  this.showRoomModal = false;
+}
 
 
-    openEditFacultyModal(faculty) {
-      this.facultyForm = { ...faculty };
-      this.showFacultyModal = true;
+      } catch (err) {
+        console.error(`Failed to update ${type}:`, err.response?.data || err);
+      } finally {
+        this.hide(); // hide loading
+      }
     },
+    async openEditFacultyModal(faculty) {
+      this.show(); // show global loading
+      try {
+        // If you need to fetch fresh data from API, do it here
+        // const res = await axios.get(`/api/professors/${faculty.id}`);
+        // this.selectedFaculty = res.data.data || res.data;
+
+      this.selectedFaculty = {
+      ...faculty,
+      unavailableTimes: faculty.unavailableTimes || [],
+      maxLoad: faculty.maxLoad ?? 1,
+    };
+        this.showFacultyModal = true;   // open the modal
+      } finally {
+        this.hide(); // hide loading
+      }
+    },
+
 
     openEditRoomModal(room) {
       this.roomForm = { ...room };
@@ -277,53 +300,53 @@ export default {
     },
 
     async openEditCourseModal(course) {
-  try {
-    const res = await axios.get(`/api/courses/${course.id}`);
-    const courseData = res.data.course;
+      try {
+        this.show(); // show loading
+        const res = await axios.get(`/api/courses/${course.id}`);
+        const courseData = res.data.course;
 
-    // Make sure subjects are actually included from backend
-    this.courseForm = {
-      ...courseData,
-      subjects: courseData.subjects || [] // prevent undefined
-    };
+        this.courseForm = {
+          ...courseData,
+          subjects: courseData.subjects || []
+        };
 
-    console.log("Loaded course with subjects:", this.courseForm.subjects);
-    this.showCourseModal = true;
-  } catch (err) {
-    console.error("Failed to load course details:", err.response?.data || err);
-  }
-}
-,
+        this.showCourseModal = true;
+      } catch (err) {
+        console.error("Failed to load course details:", err.response?.data || err);
+      } finally {
+        this.hide(); // hide loading
+      }
+    },
 
- async removeEntry(item) {
-  if (!item?.id) {
-    console.error("No ID provided for deletion:", item);
-    return;
-  }
-  if (!confirm("Are you sure?")) return;
+    async removeEntry(item) {
+      if (!item?.id) return;
+      if (!confirm("Are you sure?")) return;
 
-  let url = "";
-  if (this.activeTable === "faculty") url = `/api/professors/${item.id}`;
-  else if (this.activeTable === "room") url = `/api/rooms/${item.id}`;
-  else if (this.activeTable === "course") url = `/api/courses/${item.id}`;
+      this.show(); // show loading
 
-  try {
-    await axios.delete(url);
+      let url = "";
+      if (this.activeTable === "faculty") url = `/api/professors/${item.id}`;
+      else if (this.activeTable === "room") url = `/api/rooms/${item.id}`;
+      else if (this.activeTable === "course") url = `/api/courses/${item.id}`;
 
-    const list =
-      this.activeTable === "faculty"
-        ? this.facultyList
-        : this.activeTable === "room"
-        ? this.roomList
-        : this.courseList;
+      try {
+        await axios.delete(url);
 
-    const idx = list.findIndex(e => e.id === item.id);
-    if (idx > -1) list.splice(idx, 1);
-  } catch (err) {
-    console.error("Delete failed:", err);
-  }
-},
+        const list =
+          this.activeTable === "faculty"
+            ? this.facultyList
+            : this.activeTable === "room"
+            ? this.roomList
+            : this.courseList;
 
+        const idx = list.findIndex(e => e.id === item.id);
+        if (idx > -1) list.splice(idx, 1);
+      } catch (err) {
+        console.error("Delete failed:", err);
+      } finally {
+        this.hide(); // hide loading
+      }
+    },
   },
 };
 </script>

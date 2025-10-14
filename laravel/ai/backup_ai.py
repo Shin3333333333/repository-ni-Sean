@@ -22,13 +22,13 @@ def generate_schedule():
     cursor.execute("SELECT id, name, capacity, status FROM rooms")
     rooms = [r for r in cursor.fetchall() if r["status"].lower() == "available"]
 
-    cursor.execute("SELECT id, name, max_load, department, time_unavailable, status FROM professors")
+    cursor.execute("SELECT id, name, max_load, time_unavailable, status FROM professors")
     faculty = [f for f in cursor.fetchall() if f["status"].lower() == "active"]
 
     cursor.execute("SELECT id, name, students FROM courses")
     courses = cursor.fetchall()
 
-    cursor.execute("SELECT id, subject_title, course_id, subject_code FROM subjects")
+    cursor.execute("SELECT id, subject_title, course_id FROM subjects")
     subjects = cursor.fetchall()
 
     for c in courses:
@@ -46,6 +46,7 @@ def generate_schedule():
                 start_str = f"{start:02d}:00"
                 end_str = f"{end:02d}:00"
                 time_slots.append(f"{day} {start_str}-{end_str}")
+
 
     # -----------------------------
     # HELPER FUNCTIONS
@@ -91,9 +92,6 @@ def generate_schedule():
                 return True
         return False
 
-    # -----------------------------
-    # ADD FACULTY UNAVAILABLE PARSING
-    # -----------------------------
     slot_structs = [parse_slot_label(t) for t in time_slots]
     slot_index_by_label = {t: i for i, t in enumerate(time_slots)}
     overlap_map = {i: set() for i in range(len(slot_structs))}
@@ -129,25 +127,6 @@ def generate_schedule():
                     pass
         f["unavailable_parsed"] = ranges
 
-    # -----------------------------
-    # ADD DEPARTMENT FILTER
-    # -----------------------------
-    def get_subject_department(subject_code):
-        m = re.match(r'([A-Z]+)', subject_code)
-        return m.group(1) if m else None
-
-    for s in subjects:
-        s["dept"] = get_subject_department(s.get("subject_code", ""))
-
-    faculty_by_dept = {}
-    for f in faculty:
-        dept = f.get("department")
-        if dept:
-            faculty_by_dept.setdefault(dept, []).append(f)
-
-    # -----------------------------
-    # PREPARE COURSE SUBJECTS
-    # -----------------------------
     course_subjects = []
     for c in courses:
         for s in c["subjects"]:
@@ -155,23 +134,13 @@ def generate_schedule():
             s_copy["course_id"] = c["id"]
             course_subjects.append(s_copy)
 
-    # -----------------------------
-    # SETUP CP MODEL
-    # -----------------------------
     model = cp_model.CpModel()
     x = {}
 
     for subj in course_subjects:
         sid = subj["id"]
         students = next((c["students"] for c in courses if c["id"]==subj["course_id"]),0)
-
-        # Only allow faculty from matching department
-        subj_dept = subj.get("dept")
-        allowed_faculty = faculty_by_dept.get(subj_dept, [])
-        if not allowed_faculty:
-            allowed_faculty = faculty  # fallback if no match
-
-        for f in allowed_faculty:
+        for f in faculty:
             fid = f["id"]
             for r in rooms:
                 rid = r["id"]
@@ -180,13 +149,8 @@ def generate_schedule():
                 for t in time_slots:
                     if is_time_conflict(f["unavailable_parsed"], t):
                         continue
-                    x[(sid,fid,rid,t)] = model.NewBoolVar(
-                        f"x_s{sid}_f{fid}_r{rid}_t{slot_index_by_label[t]}"
-                    )
+                    x[(sid,fid,rid,t)] = model.NewBoolVar(f"x_s{sid}_f{fid}_r{rid}_t{slot_index_by_label[t]}")
 
-    # -----------------------------
-    # FACULTY LOAD VARIABLES
-    # -----------------------------
     faculty_load_vars = {}
     for f in faculty:
         fid = f["id"]
@@ -200,9 +164,6 @@ def generate_schedule():
         model.Add(lv <= max_load_var)
     model.Minimize(max_load_var)
 
-    # -----------------------------
-    # EACH SUBJECT ASSIGNED ONCE
-    # -----------------------------
     for subj in course_subjects:
         sid = subj["id"]
         vars_for_subj = [v for (s,f,r,t),v in x.items() if s==sid]
@@ -211,9 +172,6 @@ def generate_schedule():
         else:
             model.Add(0==1)
 
-    # -----------------------------
-    # CONFLICT CONSTRAINTS
-    # -----------------------------
     num_slots = len(slot_structs)
     for f in faculty:
         fid = f["id"]
@@ -250,9 +208,6 @@ def generate_schedule():
         if vars_f:
             model.Add(sum(vars_f) <= max_subs)
 
-    # -----------------------------
-    # SOLVE MODEL
-    # -----------------------------
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 30
     solver.parameters.num_search_workers = 8
@@ -272,7 +227,9 @@ def generate_schedule():
 
     cursor.close()
     db.close()
+
     return schedule
+
 
 if __name__ == "__main__":
     schedule = generate_schedule()

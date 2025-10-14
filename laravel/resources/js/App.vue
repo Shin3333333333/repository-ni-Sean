@@ -4,6 +4,7 @@
 
   <div v-if="!isAuthenticated" class="login-full">
     <router-view />
+    <LoadingModal /> 
   </div>
 
   <!-- authenticated -->
@@ -176,11 +177,12 @@ body {
   color: #111;
 }
 
-.generate-btn,
+.sidebar .generate-btn,
 .error-loog-btn {
   width: 100%;
   margin-top: 40px;
-  padding: 18px;
+  padding: 0 18px; /* horizontal padding */
+  height: 48px;    /* fixed height */
   border-radius: 18px;
   background: #000;
   color: #fff;
@@ -190,8 +192,12 @@ body {
   box-shadow: 0 6px 18px rgba(0,0,0,0.08);
   text-decoration: none;
   text-align: center;
-  display: block;
+  display: flex;           /* use flex to center content */
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
 }
+
 
 .error-loog-btn {
   margin-top: auto;

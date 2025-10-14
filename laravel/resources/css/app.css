@@ -69,7 +69,7 @@
   If we ever want to remove these styles, we need to add an explicit border
   color utility to any element that depends on these defaults.
 */
-@layer base {
+/* @layer base {
     *,
     ::after,
     ::before,
@@ -77,7 +77,7 @@
     ::file-selector-button {
         border-color: var(--color-gray-200, currentColor);
     }
-}
+} */
 
 @layer utilities {
     body,
@@ -163,10 +163,61 @@
 }
 
 @layer base {
-    * {
-        @apply border-border outline-ring/50;
-    }
     body {
         @apply bg-background text-foreground;
     }
+
+    /* ✅ Only apply border defaults to elements that actually need them */
+    *, ::before, ::after {
+        box-sizing: border-box;
+    }
+
+    button, input, select, textarea {
+        @apply outline-ring/50;
+    }
+}
+
+/* Optional: small helper classes for quick use */
+/* Optional: small helper classes for quick use */
+/* Responsive 12-column grid system */
+.grid-row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* Default column span (full width) */
+[class*="col-"] {
+  grid-column: span 12;
+}
+
+/* Quick column spans */
+.col-1 { grid-column: span 1; }
+.col-2 { grid-column: span 2; }
+.col-3 { grid-column: span 3; }
+.col-4 { grid-column: span 4; }
+.col-5 { grid-column: span 5; }
+.col-6 { grid-column: span 6; }
+.col-7 { grid-column: span 7; }
+.col-8 { grid-column: span 8; }
+.col-9 { grid-column: span 9; }
+.col-10 { grid-column: span 10; }
+.col-11 { grid-column: span 11; }
+.col-12 { grid-column: span 12; }
+
+/* ===== Responsive Breakpoints ===== */
+
+/* Tablet: 2 columns per row by default */
+@media (max-width: 992px) {
+  [class*="col-"] {
+    grid-column: span 6;
+  }
+}
+
+/* Mobile: full width per column */
+@media (max-width: 600px) {
+  [class*="col-"] {
+    grid-column: span 12;
+  }
 }
