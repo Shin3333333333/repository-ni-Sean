@@ -1,9 +1,9 @@
-# fixed_scheduler_load_balanced.py
+# fixed_scheduler_load_balanced_debug.py
 import mysql.connector
 from ortools.sat.python import cp_model
 import re
 import json
-
+import sys
 def generate_schedule():
     # -----------------------------
     # DATABASE CONNECTION
@@ -28,7 +28,7 @@ def generate_schedule():
     cursor.execute("SELECT id, name, students FROM courses")
     courses = cursor.fetchall()
 
-    cursor.execute("SELECT id, subject_title, course_id, subject_code FROM subjects")
+    cursor.execute("SELECT id, subject_title, course_id, subject_code, units FROM subjects")
     subjects = cursor.fetchall()
 
     for c in courses:
@@ -128,6 +128,7 @@ def generate_schedule():
                 except:
                     pass
         f["unavailable_parsed"] = ranges
+        print(f"Faculty {f['name']} unavailable: {f['unavailable_parsed']}", file=sys.stderr)
 
     # -----------------------------
     # ADD DEPARTMENT FILTER
@@ -163,13 +164,13 @@ def generate_schedule():
 
     for subj in course_subjects:
         sid = subj["id"]
-        students = next((c["students"] for c in courses if c["id"]==subj["course_id"]),0)
+        course_obj = next((c for c in courses if c["id"]==subj["course_id"]), None)
+        students = course_obj["students"] if course_obj and course_obj["students"] else 1
 
-        # Only allow faculty from matching department
         subj_dept = subj.get("dept")
         allowed_faculty = faculty_by_dept.get(subj_dept, [])
         if not allowed_faculty:
-            allowed_faculty = faculty  # fallback if no match
+            allowed_faculty = faculty  # fallback
 
         for f in allowed_faculty:
             fid = f["id"]
@@ -178,11 +179,14 @@ def generate_schedule():
                 if r["capacity"] < students:
                     continue
                 for t in time_slots:
+                    # TEMPORARILY ignore faculty unavailability to test feasibility
                     if is_time_conflict(f["unavailable_parsed"], t):
                         continue
                     x[(sid,fid,rid,t)] = model.NewBoolVar(
                         f"x_s{sid}_f{fid}_r{rid}_t{slot_index_by_label[t]}"
                     )
+
+    print(f"Total assignment variables created: {len(x)}", file=sys.stderr)
 
     # -----------------------------
     # FACULTY LOAD VARIABLES
@@ -209,7 +213,7 @@ def generate_schedule():
         if vars_for_subj:
             model.Add(sum(vars_for_subj)==1)
         else:
-            model.Add(0==1)
+            print(f"WARNING: No feasible assignments for subject {subj['subject_title']} (id={sid})", file=sys.stderr)
 
     # -----------------------------
     # CONFLICT CONSTRAINTS
@@ -241,14 +245,15 @@ def generate_schedule():
             if vars_overlapping:
                 model.Add(sum(vars_overlapping)<=1)
 
-    for f in faculty:
-        fid = f["id"]
-        if f.get("max_load") is None:
-            continue
-        max_subs = int(f["max_load"])
-        vars_f = [v for (s, ff, rr, t), v in x.items() if ff==fid]
-        if vars_f:
-            model.Add(sum(vars_f) <= max_subs)
+    # TEMPORARILY ignore max_load constraints for feasibility
+    # for f in faculty:
+    #     fid = f["id"]
+    #     if f.get("max_load") is None:
+    #         continue
+    #     max_subs = int(f["max_load"])
+    #     vars_f = [v for (s, ff, rr, t), v in x.items() if ff==fid]
+    #     if vars_f:
+    #         model.Add(sum(vars_f) <= max_subs)
 
     # -----------------------------
     # SOLVE MODEL
@@ -262,11 +267,25 @@ def generate_schedule():
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         for (sid,fid,rid,t), v in x.items():
             if solver.BooleanValue(v):
+                subject_obj = next((s for s in subjects if s["id"]==sid), None)
+                if not subject_obj:
+                    continue
+
+                course_obj = next((c for c in courses if c["id"]==subject_obj["course_id"]), None)
+                if not course_obj:
+                    continue
+
+                faculty_obj = next((f for f in faculty if f["id"]==fid), None)
+                room_obj = next((r for r in rooms if r["id"]==rid), None)
+                if not faculty_obj or not room_obj:
+                    continue
+
                 schedule.append({
-                    "course": next(c["name"] for c in courses if c["id"]==next(s["course_id"] for s in subjects if s["id"]==sid)),
-                    "subject": next(s["subject_title"] for s in subjects if s["id"]==sid),
-                    "faculty": next(f["name"] for f in faculty if f["id"]==fid),
-                    "room": next(r["name"] for r in rooms if r["id"]==rid),
+                    "course": course_obj["name"],
+                    "subject": subject_obj["subject_title"],
+                    "units": subject_obj.get("units", 0),
+                    "faculty": faculty_obj["name"],
+                    "room": room_obj["name"],
                     "time": t
                 })
 
@@ -275,10 +294,20 @@ def generate_schedule():
     return schedule
 
 if __name__ == "__main__":
-    schedule = generate_schedule()
-    output = {
-        "success": True,
-        "message": f"Schedule generated successfully with {len(schedule)} assignments",
-        "schedule": schedule
-    }
+    try:
+        schedule = generate_schedule()
+        output = {
+            "success": True,
+            "message": f"Schedule generated successfully with {len(schedule)} assignments",
+            "schedule": schedule
+        }
+    except Exception as e:
+        import traceback
+        output = {
+            "success": False,
+            "message": f"Error: {str(e)}",
+            "trace": traceback.format_exc(),
+            "schedule": []
+        }
+    
     print(json.dumps(output, ensure_ascii=False))

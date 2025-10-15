@@ -10,7 +10,7 @@ use App\Http\Controllers\ErrorLogsController;
 use App\Http\Controllers\RoomsController;
 use App\Http\Controllers\CurriculumController;
 use App\Http\Controllers\ScheduleController;
-
+use App\Http\Controllers\PendingScheduleController;
 /* ----------------- AUTH ----------------- */
 // Temporarily remove throttle middleware for testing
 Route::post('/login', [LoginController::class, 'login']);
@@ -48,3 +48,9 @@ Route::get('/schedule/data', function () {
     ]);
 });
 Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
+Route::post('/save-schedule', [PendingScheduleController::class, 'store']);
+Route::get('/pending-schedules', [PendingScheduleController::class, 'index']);
+Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'show']);
+
+Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);
+Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
