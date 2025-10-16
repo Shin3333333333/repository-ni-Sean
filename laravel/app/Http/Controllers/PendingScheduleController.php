@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\PendingSchedule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class PendingScheduleController extends Controller
 {
@@ -105,4 +106,34 @@ public function finalize($batch_id)
         'batch_id' => $batchId
     ]);
     }
+public function updateBatch(Request $request, $batchId)
+{
+    $schedules = $request->input('schedules', []);
+
+    foreach ($schedules as $sched) {
+        if (isset($sched['id'])) {
+            DB::table('pending_schedules')
+                ->where('id', $sched['id'])
+                ->where('batch_id', $batchId)
+                ->update([
+                    'faculty' => $sched['faculty'] ?? '',
+                    'subject' => $sched['subject'] ?? '',
+                    'time' => $sched['time'] ?? '',
+                    'classroom' => $sched['classroom'] ?? '',
+                    'course_code' => $sched['course_code'] ?? '',
+                    'units' => $sched['units'] ?? '',
+                    'academicYear' => $sched['academicYear'] ?? '',
+                    'semester' => $sched['semester'] ?? '',
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
+    return response()->json(['success' => true]);
 }
+
+
+}
+
+
+

@@ -54,3 +54,4 @@ Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, '
 
 Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);
 Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
+Route::put('/pending-schedules/{batchId}/update', [PendingScheduleController::class, 'updateBatch']);
