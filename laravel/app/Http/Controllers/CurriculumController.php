@@ -18,65 +18,88 @@ class CurriculumController extends Controller
     }
 
     // Upload a curriculum XLSX and store subjects
-    public function store(Request $request)
-    {
-        // Validate uploaded file
-        $request->validate([
-            'file' => 'required|file|mimes:xlsx,xls',
-        ]);
+public function store(Request $request)
+{
+    $request->validate([
+        'file' => 'required|file|mimes:xlsx,xls',
+    ]);
 
-        $file = $request->file('file');
-        $filename = time() . '_' . $file->getClientOriginalName();
-        $path = $file->storeAs('curriculums', $filename);
+    $file = $request->file('file');
+    $filename = time() . '_' . $file->getClientOriginalName();
+    $path = $file->storeAs('curriculums', $filename);
 
-        // Save curriculum record
-        $curriculum = Curriculum::create([
-            'name' => pathinfo($filename, PATHINFO_FILENAME),
-            'file_path' => $path,
-        ]);
+    $curriculum = Curriculum::create([
+        'name' => pathinfo($filename, PATHINFO_FILENAME),
+        'file_path' => $path,
+    ]);
 
-        // Parse XLSX
-        $spreadsheet = IOFactory::load($file->getPathname());
-        $sheet = $spreadsheet->getActiveSheet();
-        $rows = $sheet->toArray();
+    $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getPathname());
+    $sheet = $spreadsheet->getActiveSheet();
+    $rows = $sheet->toArray();
 
-        $currentSemesterId = null;
+    $currentSemesterId = null;
+    $currentYearLevel = null;
 
-        foreach ($rows as $index => $row) {
-            // Skip completely empty rows
-            if (!array_filter($row)) continue;
+    // Define header keywords to skip
+    $headerKeywords = ['subject code', 'subject title', 'units', 'hours', 'prerequisite', 'type'];
 
-            // Detect semester row
-            $possibleSemester = trim($row[0] ?? '');
-            $semester = Semester::where('name', $possibleSemester)->first();
-            if ($semester) {
-                $currentSemesterId = $semester->id;
-                continue; // skip this row, it's a semester header
+    foreach ($rows as $row) {
+        // Skip completely empty rows
+        if (!array_filter($row)) continue;
+
+        $firstCell = trim($row[0] ?? '');
+        $secondCell = trim($row[1] ?? '');
+
+        // Detect semester row (e.g., "1st Year – 1st Semester")
+       // Detect semester row (e.g., "1st Year – 1st Semester")
+        if (preg_match('/(\d+(st|nd|rd|th)\sYear)\s–\s(\d+(st|nd|rd|th)\sSemester)/i', $firstCell, $matches)) {
+            // $matches[1] = "1st Year", $matches[3] = "1st Semester"
+            $currentYearLevel = $matches[1];
+
+            // Map semester text to fixed IDs
+            $semesterText = strtolower($matches[3]);
+            if (str_contains($semesterText, '1st')) {
+                $currentSemesterId = 1;
+            } elseif (str_contains($semesterText, '2nd')) {
+                $currentSemesterId = 2;
+            } else {
+                $currentSemesterId = null; // fallback
             }
 
-            // Skip table header rows
-            if (str_contains(strtolower($row[1] ?? ''), 'subject code')) continue;
-
-            // Insert subject
-            Subject::create([
-                'curriculum_id' => $curriculum->id,
-                'course_id'     => null, // assign later when course is created
-                'year_level'    => $row[0] ?? null,
-                'semester_id'   => $currentSemesterId,
-                'subject_code'  => $row[1] ?? null,
-                'subject_title' => $row[2] ?? null,
-                'units'         => isset($row[3]) ? (int)$row[3] : null,
-                'hours'         => isset($row[4]) ? (int)$row[4] : null,
-                'pre-requisite' => $row[5] ?? null,
-                'type'          => $row[6] ?? null,
-            ]);
+            continue;
         }
 
-        return response()->json([
-            'message' => 'Curriculum uploaded and subjects stored successfully',
-            'curriculum' => $curriculum,
+                // Skip header rows dynamically
+        $isHeaderRow = false;
+        foreach ($row as $cell) {
+            if ($cell && in_array(strtolower(trim($cell)), $headerKeywords)) {
+                $isHeaderRow = true;
+                break;
+            }
+        }
+        if ($isHeaderRow) continue;
+
+        // Insert subject
+        Subject::create([
+            'curriculum_id' => $curriculum->id,
+            'course_id'     => null,
+            'year_level'    => $currentYearLevel,
+            'semester_id'   => $currentSemesterId,
+            'subject_code'  => $row[0] ?? null,
+            'subject_title' => $row[1] ?? null,
+            'units'         => isset($row[2]) ? (int)$row[2] : null,
+            'hours'         => isset($row[3]) ? (int)$row[3] : null,
+            'pre_requisite' => $row[4] ?? 'None',
+            'type'          => $row[5] ?? 'Major',
         ]);
     }
+
+    return response()->json([
+        'message' => 'Curriculum uploaded and subjects stored successfully',
+        'curriculum' => $curriculum,
+    ]);
+}
+
 
     // Get subjects for a curriculum
     public function subjects($curriculum_id)

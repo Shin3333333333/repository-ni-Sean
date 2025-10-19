@@ -100,6 +100,7 @@
             <table border="1" cellpadding="5" cellspacing="0" class="create-table">
               <thead>
                 <tr>
+                  <th>Subject Code</th>
                   <th>Subject</th>
                   <th>Time</th>
                   <th>Classroom</th>
@@ -114,7 +115,9 @@
                   v-for="(entry, index) in entries"
                   :key="entry._localId || entry.subject + '-' + index"
                   :id="`row-${entry.subject_id || entry._localId}`"
-                >
+                > 
+                  <td v-if="editMode"><input v-model="entry.courseCode" /></td>
+                  <td v-else>{{ entry.courseCode || '—' }}</td>
                   <td v-if="editMode"><input v-model="entry.subject" /></td>
                   <td v-else>{{ entry.subject || '—' }}</td>
 
@@ -124,8 +127,8 @@
                   <td v-if="editMode"><input v-model="entry.classroom" /></td>
                   <td v-else>{{ entry.classroom || '—' }}</td>
 
-                  <td v-if="editMode"><input v-model="entry.courseCode" /></td>
-                  <td v-else>{{ entry.courseCode || '—' }}</td>
+                  <td v-if="editMode"><input v-model="entry.courseSection" /></td>
+                  <td v-else>{{ entry.courseSection || '—' }}</td>
 
                   <td v-if="editMode"><input v-model.number="entry.units" type="number" min="0" /></td>
                   <td v-else>{{ entry.units ?? 0 }}</td>
@@ -250,13 +253,23 @@ export default {
       summary: null,
       facultyList: [],
       roomList: [],
-      conflicts: [], // 🆕 added
+      conflicts: [],
       loading: false,
     };
   },
   setup() {
     const { show, hide } = useLoading();
     return { show, hide };
+  },
+  watch: {
+    semester(newVal, oldVal) {
+      this.groupedSchedules = {};
+      this.unassigned = [];
+      this.summary = null;
+      this.conflicts = [];
+      this.selectedFaculty = "All";
+      this.selectedCourse = "All";
+    },
   },
   computed: {
     scheduleGenerated() {
@@ -311,12 +324,9 @@ export default {
       });
       return totals;
     },
-
-    // 🧩 Updated logic — only show Faculty column when filtering by course
     showFacultyColumn() {
       return this.selectedCourse !== "All";
     },
-
     assignedList() {
       const list = [];
       Object.values(this.groupedSchedules).forEach((entries) => {
@@ -346,19 +356,19 @@ export default {
     showError(text) {
       this.showMessage(text, "error");
     },
-
     toggleEditMode() {
       this.editMode = !this.editMode;
     },
-
     addEntry(groupKey) {
       if (!this.groupedSchedules[groupKey])
         this.$set(this.groupedSchedules, groupKey, []);
       this.groupedSchedules[groupKey].push({
+        subjectCode: "",
         subject: "",
         time: "",
         classroom: "",
         courseCode: "",
+        courseSection: "",
         units: 0,
         faculty: groupKey,
         _localId: Date.now() + Math.random(),
@@ -367,14 +377,77 @@ export default {
     removeEntry(groupKey, index) {
       this.groupedSchedules[groupKey].splice(index, 1);
     },
+    async saveSchedule() {
+    if (!this.groupedSchedules || Object.keys(this.groupedSchedules).length === 0) {
+      this.showError("No schedule to save. Generate a schedule first.");
+      return;
+    }
 
+    if (!this.academicYear) {
+      this.showError("Please provide Academic Year before saving.");
+      return;
+    }
+
+    this.loading = true;
+    this.show();
+
+    try {
+    const scheduleItems = [];
+    Object.values(this.groupedSchedules).forEach((entries) => {
+      entries.forEach((e) => {
+        scheduleItems.push({
+          faculty: e.faculty || e._selectedFaculty || "Unknown",
+          subject: e.subject || e.subject_title || "Untitled",
+          time: e.time || e.time_slot || null,
+          classroom: e.classroom || e.room_name || null,
+          course_code: e.courseCode || e.course_code || "",
+          course_section: e.courseSection || e.course_section || "",
+          units: Number(e.units) || 0,
+          academicYear: this.academicYear,   // ✅ match backend
+          semester: this.semester,
+          status: "pending",                 // optional, default to pending
+        });
+      });
+    });
+
+    const payload = { schedule: scheduleItems };
+
+
+
+      const res = await fetch("/api/save-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json();
+
+      if (!result.success) {
+        this.showError(result.message || "Failed to save schedule.");
+        return;
+      }
+
+      this.showSuccess(result.message || "Schedule saved successfully!");
+    } catch (err) {
+      console.error(err);
+      this.showError("An error occurred while saving schedule.");
+    } finally {
+      this.hide();
+      this.loading = false;
+    }
+  },
     // 🧩 UPDATED: send semester_id instead of semester text
     async generateSchedule() {
+      
+
       if (!this.academicYear) {
         this.showError("Please provide Academic Year before generating.");
         return;
       }
-
+      this.groupedSchedules = {}; // clear old schedule
+      this.unassigned = [];
+      this.summary = null;
+      this.conflicts = [];
       const semesterMap = {
         "1st Semester": 1,
         "2nd Semester": 2,
@@ -384,17 +457,20 @@ export default {
       this.loading = true;
       this.show();
       try {
+
         const res = await fetch("/api/generate-schedule", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            academicYear: this.academicYear,
-            semester_id: semester_id,
-          }),
+            body: JSON.stringify({
+        academicYear: this.academicYear,
+        semester: this.semester,  // <- send the string directly
+      }),
+
         });
-
+        console.log("Sending request with semester_id:", semester_id, "academicYear:", this.academicYear);
+        
         const result = await res.json();
-
+        console.log("API response schedule:", result.schedule);
         if (!result || !result.success) {
           this.showError(result?.message || "Failed to generate schedule.");
           return;
@@ -429,15 +505,18 @@ export default {
           if (!grouped[faculty]) grouped[faculty] = [];
 
           grouped[faculty].push({
-            subject,
-            time,
-            classroom,
-            courseCode,
-            units,
-            faculty,
-            subject_id: s.subject_id ?? s.id ?? null,
-            _localId: `${Date.now()}-${idx}-${Math.random()}`,
-          });
+          subject: s.subject_title,
+          time: s.time_slot,
+          classroom: s.room_name,
+          courseCode: s.course_code,
+          courseSection: s.course_section,
+          units: s.units,
+          faculty: s.faculty_name,
+          subject_id: s.subject_id ?? s.id ?? null,
+          _localId: `${Date.now()}-${idx}-${Math.random()}`,
+        });
+
+
         });
 
         this.unassigned = Array.isArray(result.unassigned)
@@ -484,7 +563,7 @@ export default {
     async refreshFacultiesAndRooms() {
       try {
         const [fRes, rRes] = await Promise.all([
-          fetch("/api/faculties").then((r) => r.json()).catch(() => ({ items: [] })),
+          fetch("/api/professors").then((r) => r.json()).catch(() => ({ items: [] })),
           fetch("/api/rooms").then((r) => r.json()).catch(() => ({ items: [] })),
         ]);
 

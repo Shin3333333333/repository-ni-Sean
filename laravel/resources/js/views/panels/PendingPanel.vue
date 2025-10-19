@@ -46,118 +46,135 @@
       </table>
     </div>
 
-    <!-- ====== Selected Batch Modal ====== -->
     <div v-if="showModal && selectedBatch" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
-          <div class="faculty-filter">
-            <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
-            <select id="facultySelect" v-model="facultyFilter" class="filter-select">
-              <option value="">📋 Show All Faculty</option>
-              <option
-                v-for="(count, facultyName) in facultyCounts"
-                :key="facultyName"
-                :value="facultyName"
-              >
-                {{ facultyName }} ({{ count }})
-              </option>
-            </select>
-          </div>
-          <div class="header-buttons">
-            <div class="action-buttons">
-              <button class="edit-btn" @click="toggleEditMode">
-                {{ editMode ? 'Finish Editing' : 'Edit' }}
-              </button>
-              <button v-if="editMode" class="save-btn" @click="saveChanges">
-                💾 Save Changes
-              </button>
-              <button class="finalize-btn" @click="finalizeBatch">Finalize</button>
-              <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
-              <button class="exit-btn" @click="closeModal">Exit</button>
-            </div>
-
-          </div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
+      <div class="faculty-filter">
+        <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
+        <select id="facultySelect" v-model="facultyFilter" class="filter-select">
+          <option value="">📋 Show All Faculty</option>
+          <option
+            v-for="(count, facultyName) in facultyCounts"
+            :key="facultyName"
+            :value="facultyName"
+          >
+            {{ facultyName }} ({{ count }})
+          </option>
+        </select>
+      </div>
+      <div class="header-buttons">
+        <div class="action-buttons">
+          <button class="edit-btn" @click="toggleEditMode">
+            {{ editMode ? 'Finish Editing' : 'Edit' }}
+          </button>
+          <button v-if="editMode" class="save-btn" @click="saveChanges">
+            💾 Save Changes
+          </button>
+          <button class="finalize-btn" @click="finalizeBatch">Finalize</button>
+          <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
+          <button class="exit-btn" @click="closeModal">Exit</button>
         </div>
-
-        <!-- ====== Faculty Groups ====== -->
-        <div
-          v-for="(facultySchedules, facultyName) in groupedByFaculty"
-          :key="facultyName"
-          class="faculty-section"
-        >
-          <h4>{{ facultyName }}</h4>
-
-          <table class="create-table">
-            <thead>
-              <tr>
-                <th v-if="editMode">⇅</th>
-                <th v-if="deleteMode">
-                  <input type="checkbox" @change="toggleAll($event, facultySchedules)" />
-                </th>
-                <th v-for="col in tableColumns" :key="col">{{ col }}</th>
-              </tr>
-            </thead>
-
-            <draggable
-              v-model="groupedByFaculty[facultyName]"
-              :disabled="!editMode"
-              handle=".drag-handle"
-              item-key="id"
-              tag="tbody"
-            >
-
-              <template #item="{ element, index }">
-                <tr>
-                  <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
-                  <td v-if="deleteMode">
-                    <input type="checkbox" v-model="selectedRows" :value="element.id" />
-                  </td>
-
-                  <td
-                    v-for="(col, cIndex) in tableColumns"
-                    :key="cIndex"
-                    draggable="true"
-                    @dragstart="startDrag($event, facultyName, index, col)"
-                    @dragover.prevent
-                    @drop="onDrop($event, facultyName, index, col)"
-                    class="draggable-cell"
-                    :class="{ editable: editMode }"
-                    @dblclick="enableEdit(facultyName, index, col)"
-                  >
-                    <input
-                      v-if="isEditingCell(facultyName, index, col)"
-                      v-model="editableValue"
-                      @blur="saveEdit(facultyName, index, col)"
-                      @keyup.enter="saveEdit(facultyName, index, col)"
-                      class="edit-input"
-                      autofocus
-                    />
-                    <span v-else>
-                      {{ element[col.toLowerCase().replace(' ', '_')] }}
-                    </span>
-                  </td>
-                </tr>
-              </template>
-            </draggable>
-          </table>
-
-          <div class="total-units">
-            Total Load Units:
-            {{
-              facultySchedules.reduce(
-                (sum, s) =>
-                  sum + (Number(s.units || s.cells?.find(c => c.key === 'units')?.value) || 0),
-                0
-              )
-            }}
-          </div>
-        </div>
-
-        <button class="close-btn" @click="closeModal">Close</button>
       </div>
     </div>
 
+    <!-- ====== Summary Overview ====== -->
+    <!-- ====== Summary Overview ====== -->
+<div class="summary-overview" v-if="pendingSchedules.length">
+  <h4>📊 Summary Overview</h4>
+  <div class="summary-cards">
+    <div class="summary-card assigned">
+      <h5>Total Assigned</h5>
+      <p>{{ totalAssigned }}</p>
+    </div>
+    <div class="summary-card unassigned">
+      <h5>Total Unassigned</h5>
+      <p>{{ totalUnassigned }}</p>
+    </div>
+    <div class="summary-card conflicts">
+      <h5>Conflicts</h5>
+      <p>{{ totalConflicts }}</p>
+    </div>
+  </div>
+</div>
+
+
+    <!-- ====== Faculty Groups ====== -->
+    <div
+      v-for="(facultySchedules, facultyName) in groupedByFaculty"
+      :key="facultyName"
+      class="faculty-section"
+    >
+      <h4>{{ facultyName }}</h4>
+
+      <table class="create-table">
+        <thead>
+          <tr>
+            <th v-if="editMode">⇅</th>
+            <th v-if="deleteMode">
+              <input type="checkbox" @change="toggleAll($event, facultySchedules)" />
+            </th>
+            <th v-for="col in tableColumns" :key="col">{{ col }}</th>
+          </tr>
+        </thead>
+
+        <draggable
+          v-model="groupedByFaculty[facultyName]"
+          :disabled="!editMode"
+          handle=".drag-handle"
+          item-key="id"
+          tag="tbody"
+        >
+          <template #item="{ element, index }">
+            <tr>
+              <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
+              <td v-if="deleteMode">
+                <input type="checkbox" v-model="selectedRows" :value="element.id" />
+              </td>
+
+              <td
+                v-for="(col, cIndex) in tableColumns"
+                :key="cIndex"
+                draggable="true"
+                @dragstart="startDrag($event, facultyName, index, col)"
+                @dragover.prevent
+                @drop="onDrop($event, facultyName, index, col)"
+                class="draggable-cell"
+                :class="{ editable: editMode }"
+                @dblclick="enableEdit(facultyName, index, col)"
+              >
+                <input
+                  v-if="isEditingCell(facultyName, index, col)"
+                  v-model="editableValue"
+                  @blur="saveEdit(facultyName, index, col)"
+                  @keyup.enter="saveEdit(facultyName, index, col)"
+                  class="edit-input"
+                  autofocus
+                />
+                <span v-else>
+                  {{ element[col.toLowerCase().replace(' ', '_')] }}
+                </span>
+              </td>
+            </tr>
+          </template>
+        </draggable>
+      </table>
+
+      <div class="total-units">
+        Total Load Units:
+        {{
+          facultySchedules.reduce(
+            (sum, s) =>
+              sum + (Number(s.units || s.cells?.find(c => c.key === 'units')?.value) || 0),
+            0
+          )
+        }}
+      </div>
+    </div>
+
+    <button class="close-btn" @click="closeModal">Close</button>
+  </div>
+</div>
     <LoadingModal />
   </div>
 </template>
@@ -182,7 +199,8 @@ export default {
       selectedRows: [],
       editableCell: null,
       editableValue: "",
-      tableColumns: ["Subject", "Time", "Classroom", "Course Code", "Units"],
+      tableColumns: ["Subject Code","Subject", "Time", "Classroom",  "Course Section", "Units"],
+
       dragData: null,
       facultyFilter: "", // 🆕 For filtering by faculty
     };
@@ -226,28 +244,45 @@ export default {
 
   // ✅ Grouped & filtered schedules by faculty
   groupedByFaculty() {
-    if (!this.pendingSchedules?.length) return {};
+  if (!this.pendingSchedules?.length) return {};
 
-    const grouped = this.pendingSchedules.reduce((groups, s) => {
-      if (!groups[s.faculty]) groups[s.faculty] = [];
-      groups[s.faculty].push({ ...s });
-      return groups;
-    }, {});
+  const grouped = this.pendingSchedules.reduce((groups, s) => {
+    const faculty = s.faculty || "Unknown";
+    if (!groups[faculty]) groups[faculty] = [];
+    groups[faculty].push({ ...s });
+    return groups;
+  }, {});
 
-    // If facultyFilter is selected, only show that faculty
-    if (this.facultyFilter) {
-      return Object.fromEntries(
-        Object.entries(grouped).filter(
-          ([faculty]) =>
-            faculty &&
-            faculty.toLowerCase().includes(this.facultyFilter.toLowerCase())
-        )
-      );
-    }
+  if (this.facultyFilter) {
+    return Object.fromEntries(
+      Object.entries(grouped).filter(([faculty]) =>
+        faculty.toLowerCase().includes(this.facultyFilter.toLowerCase())
+      )
+    );
+  }
 
-    return grouped;
+  return grouped;
+}, totalAssigned() {
+    return this.pendingSchedules.filter(s => s.faculty && s.faculty !== "Unknown").length;
   },
-},
+  totalUnassigned() {
+    return this.pendingSchedules.filter(s => !s.faculty || s.faculty === "Unknown").length;
+  },
+  totalConflicts() {
+    // simple conflict check: same faculty or same classroom at the same time
+    let conflicts = 0;
+    const seen = {};
+    for (const s of this.pendingSchedules) {
+      const keyFaculty = `${s.faculty}-${s.time}`;
+      const keyClass = `${s.classroom}-${s.time}`;
+      if (seen[keyFaculty]) conflicts++;
+      if (seen[keyClass]) conflicts++;
+      seen[keyFaculty] = true;
+      seen[keyClass] = true;
+    }
+    return conflicts;
+  },
+  },
 
   methods: {
     async loadPendingSchedules() {
@@ -268,32 +303,34 @@ export default {
     startDrag(event, facultyName, rowIndex, column) {
       this.dragData = { facultyName, rowIndex, column };
     },
-    onDrop(event, targetFaculty, targetRow, targetColumn) {
-  if (!this.editMode || !this.dragData) return; // 🆕 Block drop if not editing
-  const { facultyName, rowIndex, column } = this.dragData;
+   onDrop(event, targetFaculty, targetRow, targetColumn) {
+    if (!this.editMode || !this.dragData) return;
 
-  const sourceIndex = this.pendingSchedules.findIndex((s) => s.faculty === facultyName);
-  const targetIndex = this.pendingSchedules.findIndex((s) => s.faculty === targetFaculty);
+    // Only allow swapping in the same column
+    if (this.dragData.column !== targetColumn) return;
 
-  if (sourceIndex === -1 || targetIndex === -1) return;
+    const { facultyName, rowIndex, column } = this.dragData;
 
-  const sourceRows = this.pendingSchedules.filter((s) => s.faculty === facultyName);
-  const targetRows = this.pendingSchedules.filter((s) => s.faculty === targetFaculty);
+    // Get the actual rows from pendingSchedules
+    const sourceRows = this.pendingSchedules.filter(s => s.faculty === facultyName);
+    const targetRows = this.pendingSchedules.filter(s => s.faculty === targetFaculty);
 
-  const source = sourceRows[rowIndex];
-  const target = targetRows[targetRow];
-  if (!source || !target) return;
+    const source = sourceRows[rowIndex];
+    const target = targetRows[targetRow];
 
-  const sourceKey = column.toLowerCase().replace(" ", "_");
-  const targetKey = targetColumn.toLowerCase().replace(" ", "_");
+    if (!source || !target) return;
 
-  const temp = source[sourceKey];
-  source[sourceKey] = target[targetKey];
-  target[targetKey] = temp;
+    const key = column.toLowerCase().replace(" ", "_");
 
-  this.pendingSchedules = [...this.pendingSchedules];
-  this.dragData = null;
-},
+    // Swap values
+    const temp = source[key];
+    source[key] = target[key];
+    target[key] = temp;
+
+    this.pendingSchedules = [...this.pendingSchedules]; // force reactivity
+    this.dragData = null;
+  }
+,
 
 enableEdit(faculty, row, column) {
   if (!this.editMode) return; // 🆕 No editing if not in edit mode
@@ -322,53 +359,61 @@ isEditingCell(faculty, row, column) {
 saveEdit(faculty, row, column) {
   const key = column.toLowerCase().replace(" ", "_");
 
-  // 🧩 If user pressed Enter without typing anything — restore old value
   if (!this.editableValue || this.editableValue.trim() === "") {
+    // Restore old value if input is empty
     this.editableCell = null;
     this.editableValue = "";
-    return; // Don’t overwrite with blank or null
+    return;
   }
 
-  // ✅ Update in grouped view
-  this.groupedByFaculty[faculty][row][key] = this.editableValue;
+  // Find the actual schedule in pendingSchedules
+  const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
+  const editedRow = facultyRows[row];
+  if (!editedRow) return;
 
-  // ✅ Find actual schedule and update
-  const updatedRow = this.groupedByFaculty[faculty][row];
-  const scheduleIndex = this.pendingSchedules.findIndex(
-    (s) => s.id === updatedRow.id
-  );
-
-  if (scheduleIndex !== -1) {
-    this.pendingSchedules[scheduleIndex][key] = this.editableValue;
-  }
+  // Update the value directly in pendingSchedules
+  editedRow[key] = this.editableValue;
 
   this.editableCell = null;
   this.editableValue = "";
-  this.pendingSchedules = [...this.pendingSchedules];
+  this.pendingSchedules = [...this.pendingSchedules]; // force reactivity
 }
+
 ,
 
 async saveChanges() {
   if (!this.selectedBatch) return alert("No batch selected.");
-  if (!this.pendingSchedules.length)
-    return alert("No schedules to save.");
+  if (!this.pendingSchedules.length) return alert("No schedules to save.");
 
   this.show();
   try {
-    // Send all modified schedules to backend
-    console.log("Saving schedules:", this.pendingSchedules);
+    // Prepare payload
+    const schedulesToSave = this.pendingSchedules.map(s => ({
+      id: s.id,
+      subject_code: s.subject_code,
+      subject: s.subject,
+      time: s.time,
+      classroom: s.classroom,
+      course_section: s.course_section,
+      units: Number(s.units),
+      faculty: s.faculty
+    }));
 
     const res = await fetch(`/api/pending-schedules/${this.selectedBatch}/update`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schedules: this.pendingSchedules }),
+      body: JSON.stringify({ schedules: schedulesToSave }),
     });
+
     const data = await res.json();
 
     if (data.success) {
       alert("✅ Changes saved successfully!");
       this.loadPendingSchedules();
       this.showModal = false; // optionally close modal
+      this.editMode = false;
+      this.editableCell = null;
+      this.editableValue = "";
     } else {
       alert("❌ Failed to save changes: " + data.message);
     }
@@ -378,24 +423,50 @@ async saveChanges() {
   } finally {
     this.hide();
   }
-},
+}
+,
 
     // === OTHER CONTROLS ===
-    async openBatch(batchId) {
-      this.selectedBatch = batchId;
-      this.show();
-      try {
-        const res = await fetch(`/api/pending-schedules/${batchId}`);
-        const data = await res.json();
-        this.pendingSchedules = data.pending || data.schedules || [];
-        this.showModal = true;
-      } catch (err) {
-        console.error(err);
-        alert("Failed to load batch details.");
-      } finally {
-        this.hide();
+ async openBatch(batchId) {
+  this.selectedBatch = batchId;
+  this.show();
+  try {
+    const res = await fetch(`/api/pending-schedules/${batchId}`);
+    const data = await res.json();
+
+    // Check if it's grouped (object) or array
+    let schedules = [];
+    if (data.pending && !Array.isArray(data.pending)) {
+      // Flatten grouped object into array
+      for (const group of Object.values(data.pending)) {
+        schedules.push(...group);
       }
-    },
+    } else {
+      schedules = data.pending || data.schedules || [];
+    }
+
+   this.pendingSchedules = schedules.map((s) => ({
+    id: s._localId || s.id,
+    subject_code: s.courseCode || s.course_code || "", // matches "Subject Code"
+    faculty: s.faculty || "Unknown",
+    subject: s.subject || "Untitled",
+    time: s.time || "",
+    classroom: s.classroom || "",
+    course_section: s.courseSection || s.course_section || "", // match table column
+    units: Number(s.units || 0),
+  }));
+
+
+    this.showModal = true;
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load batch details.");
+  } finally {
+    this.hide();
+  }
+}
+,
+
     toggleEditMode() {
       this.editMode = !this.editMode;
       this.editableCell = null;
@@ -670,5 +741,33 @@ async saveChanges() {
   border-color: #3498db;
   outline: none;
 }
+.summary-overview {
+  margin-bottom: 20px;
+}
+.summary-cards {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+.summary-card {
+  flex: 1 1 150px;
+  padding: 15px;
+  border-radius: 8px;
+  color: white;
+  text-align: center;
+}
+.summary-card.assigned { background: rgb(150, 201, 175); }
+.summary-card.unassigned { background: rgb(226, 194, 133); }
+.summary-card.conflicts { background: rgb(214, 118, 118); color: #333; }
+.summary-card h5 {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+.summary-card p {
+  font-size: 18px;
+  font-weight: bold;
+  margin: 0;
+}
+
 
 </style>

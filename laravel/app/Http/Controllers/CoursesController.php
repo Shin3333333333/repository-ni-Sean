@@ -111,13 +111,19 @@ class CoursesController extends Controller
     /**
      * Delete a course and its linked subjects
      */
-  public function destroy($id)
+public function destroy($id)
 {
     $course = Course::findOrFail($id);
-    $course->subjects()->delete();
+
+    // Delete only subjects linked to this course
+    Subject::where('course_id', $course->id)->delete();
+
+    // Delete the course
     $course->delete();
 
-    return response()->json(['message' => 'Course and related subjects deleted successfully']);
+    return response()->json([
+        'message' => 'Course and its associated subjects deleted successfully'
+    ]);
 }
 
 

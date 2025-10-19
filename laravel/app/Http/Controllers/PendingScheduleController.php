@@ -34,8 +34,26 @@ public function show($batch_id)
         ->where('status', 'pending')
         ->get();
 
-    return response()->json(['pending' => $pending]);
-}public function destroy($batch_id)
+    $grouped = [];
+    foreach ($pending as $p) {
+        $faculty = $p->faculty ?? 'Unassigned';
+        if (!isset($grouped[$faculty])) $grouped[$faculty] = [];
+        $grouped[$faculty][] = [
+            'subject' => $p->subject,
+            'time' => $p->time,
+            'classroom' => $p->classroom,
+            'courseCode' => $p->course_code,
+            'courseSection' => $p->course_section,
+            'units' => $p->units,
+            'faculty' => $p->faculty,
+            'subject_id' => $p->id,
+            '_localId' => $p->id,
+        ];
+    }
+
+    return response()->json(['pending' => $grouped]);
+}
+public function destroy($batch_id)
 {
     PendingSchedule::where('batch_id', $batch_id)->delete();
 
@@ -85,19 +103,22 @@ public function finalize($batch_id)
     $batchId = Str::uuid();
 
     foreach ($data as $item) {
-        PendingSchedule::create([
-            'faculty' => $item['faculty'] ?? 'Unknown',
-            'subject' => $item['subject'] ?? 'Untitled',
-            'time' => $item['time'] ?? null,
-            'classroom' => $item['classroom'] ?? null,
-            'course_code' => $item['course_code'] ?? null,
-            'units' => $item['units'] ?? 0,
-            'academicYear' => $item['academic_year'] ?? 'Unknown',
-            'semester' => $item['semester'] ?? '1st Semester',
-            'status' => $item['status'] ?? 'pending',
-            'user_id' => auth()->id(),
-            'batch_id' => $batchId, // ✅ <— This is the important part
-        ]);
+     PendingSchedule::create([
+        'faculty' => $item['faculty'] ?? 'Unknown',
+        'subject' => $item['subject'] ?? 'Untitled',
+        'time' => $item['time'] ?? null,
+        'classroom' => $item['classroom'] ?? null,
+        'course_code' => $item['course_code'] ?? null,
+        'course_section' => $item['course_section'] ?? null,
+        'units' => $item['units'] ?? 0,
+        'academicYear' => $item['academicYear'] ?? 'Unknown',
+        'semester' => $item['semester'] ?? '1st Semester',
+        'status' => $item['status'] ?? 'pending',
+        'user_id' => auth()->id(),
+        'batch_id' => $batchId,
+    ]);
+
+
     }
 
     return response()->json([
@@ -112,20 +133,22 @@ public function updateBatch(Request $request, $batchId)
 
     foreach ($schedules as $sched) {
         if (isset($sched['id'])) {
-            DB::table('pending_schedules')
-                ->where('id', $sched['id'])
-                ->where('batch_id', $batchId)
-                ->update([
-                    'faculty' => $sched['faculty'] ?? '',
-                    'subject' => $sched['subject'] ?? '',
-                    'time' => $sched['time'] ?? '',
-                    'classroom' => $sched['classroom'] ?? '',
-                    'course_code' => $sched['course_code'] ?? '',
-                    'units' => $sched['units'] ?? '',
-                    'academicYear' => $sched['academicYear'] ?? '',
-                    'semester' => $sched['semester'] ?? '',
-                    'updated_at' => now(),
-                ]);
+           DB::table('pending_schedules')
+            ->where('id', $sched['id'])
+            ->where('batch_id', $batchId)
+            ->update([
+                'faculty' => $sched['faculty'] ?? DB::raw('faculty'),
+                'subject' => $sched['subject'] ?? DB::raw('subject'),
+                'time' => $sched['time'] ?? DB::raw('time'),
+                'classroom' => $sched['classroom'] ?? DB::raw('classroom'),
+                'course_code' => $sched['course_code'] ?? DB::raw('course_code'),
+                'course_section' => $sched['course_section'] ?? DB::raw('course_section'),
+                'units' => $sched['units'] ?? DB::raw('units'),
+                'academicYear' => $sched['academicYear'] ?? DB::raw('academicYear'),
+                'semester' => $sched['semester'] ?? DB::raw('semester'),
+                'updated_at' => now(),
+            ]);
+
         }
     }
 

@@ -177,10 +177,15 @@ export default {
     uploadCurriculum(event) {
       this.$emit("upload", event);
     },
-    addCourse() {
-      this.$emit("submit", this.courseForm);
-      this.$emit("update:show", false);
+     addCourse() {
+    // Normalize year to include " Year" before submission
+    if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
+      this.courseForm.year = `${this.courseForm.year} Year`;
     }
+    this.$emit("submit", this.courseForm);
+    this.$emit("update:show", false);
+  }
+
   }
 };
 </script>

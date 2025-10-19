@@ -4,15 +4,16 @@ from ortools.sat.python import cp_model
 import re
 import json
 import sys
+import argparse
 from collections import defaultdict
 
-def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30, search_workers=8):
-    """
-    Generates schedule using OR-Tools CP-SAT.
-    Filters subjects by semester_id if provided.
-    Returns dict with keys: success, message, schedule, unassigned, summary, conflicts.
-    """
 
+def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30, search_workers=8):
+    import sys
+    import argparse
+
+    # Only parse CLI args if this is run as main
+    
     # -----------------------------
     # DATABASE CONNECTION
     # -----------------------------
@@ -29,106 +30,186 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
     # -----------------------------
     cursor.execute("SELECT * FROM rooms")
     rooms_all = cursor.fetchall() or []
-    # normalize capacity field: try 'capacity', 'max_load' or fallback None
     for r in rooms_all:
         r['capacity'] = r.get('capacity') or r.get('max_load') or r.get('size') or None
-        # status may be in different column names; standardize
         r['status'] = (r.get('status') or "").lower()
-
-    # only available rooms
     rooms = [r for r in rooms_all if (r.get("status") or "") in ("", "available", "active", None)]
 
     cursor.execute("SELECT * FROM professors")
     faculty_all = cursor.fetchall() or []
-    # standardize keys used in code
     for f in faculty_all:
         f['status'] = (f.get('status') or "").lower()
-        # keep time_unavailable if exists (otherwise None)
         f['time_unavailable'] = f.get('time_unavailable') or f.get('unavailable') or None
     faculty = [f for f in faculty_all if (f.get("status") in ("", "active", "available", None))]
 
     cursor.execute("SELECT * FROM courses")
     courses = cursor.fetchall() or []
-
-    # build course_by_id for quick lookup
     course_by_id = {c.get('id'): c for c in courses}
+
+    # -----------------------------
+    # SEMESTER ID NORMALIZATION
+    # -----------------------------
+    # Default semester_id from CLI args
+    # Try to read JSON payload (Laravel frontend)
+    # -----------------------------
+    # SEMESTER ID NORMALIZATION
+    # -----------------------------
+    # Initialize from CLI args
+    semester_id = semester_id
+    academic_year = academic_year
+
+    # Override with JSON payload (Laravel frontend)
+    try:
+        if not sys.stdin.isatty():
+            payload = json.load(sys.stdin)
+            semester_id = payload.get("semester_id") or payload.get("semesterId") or payload.get("semester") or semester_id
+            academic_year = payload.get("academicYear") or payload.get("academic_year") or academic_year
+    except Exception:
+        pass
+
+    # Normalize semester_id
+    # semester_id is passed from main
+    # Normalize semester_id
+    if semester_id is not None:
+        if isinstance(semester_id, str):
+            semester_id = semester_id.strip()
+            if semester_id.isdigit():
+                semester_id = int(semester_id)
+            else:
+                semester_map = {"1st Semester": 1, "2nd Semester": 2}
+                semester_id = semester_map.get(semester_id, None)
+        elif isinstance(semester_id, int):
+            pass  # already fine
+        else:
+            semester_id = None
+
+    
+
+
+    print(f"[DEBUG] semester_id before query: {semester_id}", file=sys.stderr)
+
 
     # -----------------------------
     # FETCH SUBJECTS (filtered by semester)
     # -----------------------------
+    print(f"[DEBUG] semester_id before query: {semester_id}", file=sys.stderr)
+
+    # Quick check: return empty if semester has no subjects
+    if semester_id is not None:
+        cursor.execute("SELECT COUNT(*) AS cnt FROM subjects WHERE semester_id=%s", (semester_id,))
+        subject_count = cursor.fetchone().get("cnt", 0)
+        if subject_count == 0:
+            print(f"[DEBUG] No subjects for semester_id {semester_id}, returning empty schedule.", file=sys.stderr)
+            curriculum_subjects = []
+            assigned = []
+            unassigned = []
+            conflicts = []
+            summary = {
+                "total_curriculum_subjects": 0,
+                "total_assigned": 0,
+                "total_unassigned": 0,
+                "assigned_ids": [],
+                "unassigned_ids": []
+            }
+            cursor.close()
+            db.close()
+            return {
+                "success": True,
+                "message": "No subjects for this semester",
+                "schedule": assigned,
+                "unassigned": unassigned,
+                "summary": summary,
+                "conflicts": conflicts,
+                "force_assign_fn": lambda *a, **k: {"error": "force_assign_not_available"}
+            }
+
+    # Build the query
     subject_query = """
-        SELECT
+        SELECT 
             s.id AS subject_id,
-            s.year_level,
-            s.semester_id,
-            s.subject_code,
             s.subject_title,
             s.units,
-            s.hours,
-            s.pre_requisite,
-            s.type,
-            s.created_at,
-            s.updated_at,
-            s.curriculum_id,
-            s.course_id
+            s.semester_id,
+            s.course_id,
+            c.name AS course_name,
+            f.name AS faculty_name,
+            s.subject_code
         FROM subjects s
-        WHERE s.course_id IS NOT NULL
+        LEFT JOIN courses c ON s.course_id = c.id
+        LEFT JOIN professors f ON f.department = c.name
     """
-
     params = []
-
-    # ✅ Handle semester filter properly
     if semester_id is not None:
-        # If semester_id is provided as string, first try to parse as int
-        if isinstance(semester_id, str):
-            try:
-                # allow "1" or "2" strings
-                semester_int = int(semester_id)
-                semester_id = semester_int
-            except Exception:
-                # Lookup semester name in 'semester' table (you confirmed table name is 'semester')
-                cursor.execute("SELECT id FROM semesters WHERE name = %s LIMIT 1", (semester_id,))
-                row = cursor.fetchone()
-                if row:
-                    semester_id = row.get("id")
-                else:
-                    # if not found, set impossible value so query returns nothing
-                    semester_id = -1
-        subject_query += " AND s.semester_id = %s"
+        subject_query += " WHERE s.semester_id = %s"
         params.append(semester_id)
 
-    # Run query with params (if any)
-    if params:
-        cursor.execute(subject_query, params)
-    else:
-        cursor.execute(subject_query)
+    print(f"[DEBUG] Executing subject query: {subject_query}", file=sys.stderr)
+    print(f"[DEBUG] Params: {params}", file=sys.stderr)
 
+    subjects_rows = []
+    try:
+        cursor.execute(subject_query, params)
+        subjects_rows = cursor.fetchall() or []
+    except Exception as e:
+        print(f"[DEBUG] Failed to fetch subjects: {e}", file=sys.stderr)
+
+
+    # FETCH SUBJECTS (filtered by semester + course year)
+    # -----------------------------
+    subject_query = """
+        SELECT 
+            s.id AS subject_id,
+            s.subject_title,
+            s.units,
+            s.semester_id,
+            s.course_id,
+            s.year_level,
+            c.name AS course_name,
+            c.year AS course_year,
+            f.name AS faculty_name,
+            s.subject_code
+        FROM subjects s
+        LEFT JOIN courses c ON s.course_id = c.id
+        LEFT JOIN professors f ON f.department = c.name
+        WHERE s.semester_id = %s
+        AND s.year_level = c.year
+    """
+    params = [semester_id]
+
+    cursor.execute(subject_query, params)
     subjects_rows = cursor.fetchall() or []
 
-    # Normalize subject dicts to expected keys (code elsewhere expects 'id' and 'subject_code')
+    # Normalize subjects as before
     subjects = []
     for r in subjects_rows:
         norm = dict(r)
-        # map subject_id -> id for compatibility
         if 'subject_id' in norm:
             norm['id'] = norm['subject_id']
             norm.pop('subject_id', None)
-        # ensure subject_code exists
         norm['subject_code'] = norm.get('subject_code') or ''
-        # assign course name / section from course lookup if present
         course_obj = course_by_id.get(norm.get('course_id'))
         norm['course_name'] = course_obj.get('name') if course_obj else None
         subjects.append(norm)
 
-    # only curriculum subjects (they already come with course_id != NULL by query)
-    curriculum_subjects = [s for s in subjects if s.get('course_id')]
+    # Only include subjects with valid course_id
+    curriculum_subjects = [
+        s for s in subjects
+        if s.get('course_id') not in (None, '', 0)
+    ]
+
+    print(f"[DEBUG] Loaded {len(curriculum_subjects)} valid subjects for semester {semester_id} and matching course year.", file=sys.stderr)
+
+
+    print(f"[DEBUG] semester_id resolved: {semester_id}", file=sys.stderr)
+    print(f"[DEBUG] Loaded {len(curriculum_subjects)} subjects for this semester.", file=sys.stderr)
+
 
     # -----------------------------
-    # TIME SLOTS (config)
+    # TIME SLOTS
     # -----------------------------
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     start_hours = range(6, 19)   # 06:00 .. 18:00 starts
-    slot_duration = 3            # hours
+    slot_duration = 3
     time_slots = []
     for day in days:
         for start in start_hours:
@@ -164,7 +245,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
     def intervals_overlap(a_start, a_end, b_start, b_end):
         return not (a_end <= b_start or b_end <= a_start)
 
-    # Check if slot overlaps any unavailable range with buffer (minutes)
     def is_time_conflict(parsed_unavail_ranges, slot_label, buffer_minutes=60):
         if not parsed_unavail_ranges:
             return False
@@ -195,7 +275,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                 overlap_map[i].add(j)
 
     # -----------------------------
-    # Parse faculty unavailable strings into ranges
+    # Parse faculty unavailable strings
     # -----------------------------
     for f in faculty:
         raw = f.get("time_unavailable") or f.get("unavailable") or ""
@@ -203,7 +283,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
         if isinstance(raw, list):
             parts = raw
         elif isinstance(raw, str) and raw.strip():
-            # try to parse list-like strings, otherwise comma split
             try:
                 parsed_eval = eval(raw)
                 parts = list(parsed_eval) if isinstance(parsed_eval, (list, tuple)) else [p.strip() for p in raw.split(",") if p.strip()]
@@ -221,7 +300,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                 except Exception:
                     pass
         f["unavailable_parsed"] = ranges
-        # debug log
         print(f"Faculty {f.get('name')} unavailable parsed: {f.get('unavailable_parsed')}", file=sys.stderr)
 
     # -----------------------------
@@ -241,51 +319,37 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
             faculty_by_dept.setdefault(dept, []).append(f)
 
     # -----------------------------
-    # Build allowed assignment combos (only feasible ones)
-    # Track reasons for subjects that have zero combos
+    # Build allowed assignment combos
     # -----------------------------
     allowed_combos = {}
     subject_feasible_reasons = defaultdict(list)
     combos_by_subject = defaultdict(list)
 
-    # precompute students for course subject if available in courses table
     for subj in curriculum_subjects:
-        pass  # placeholder - variable exists later
-
-    course_by_id = {c.get('id'): c for c in courses}
-    course_subjects = [s for s in subjects if s.get('course_id')]
-
-    for subj in course_subjects:
         course_obj = course_by_id.get(subj.get('course_id'))
-        # use students field from course if present, else fallback 1
         students = (course_obj.get('students') if course_obj and course_obj.get('students') is not None else None) or 1
         sid = subj.get('id')
         subj_dept = subj.get('dept')
-        allowed_faculty = faculty_by_dept.get(subj_dept, []) or faculty[:]  # fallback to all active faculty
+        allowed_faculty = faculty_by_dept.get(subj_dept, []) or faculty[:]
 
         for fobj in allowed_faculty:
             fid = fobj.get('id')
             for r in rooms:
                 rid = r.get('id')
-                # capacity fallback: try capacity or max_load
                 cap = r.get('capacity') or r.get('max_load') or None
                 if cap is not None:
                     try:
                         if int(cap) < int(students):
                             continue
                     except Exception:
-                        # if can't parse capacity, allow (safer)
                         pass
                 for t in time_slots:
-                    # respect faculty unavailability (1-hour buffer)
                     if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                         continue
-                    # passed filters - add combo
                     allowed_combos[(sid, fid, rid, t)] = True
                     combos_by_subject[sid].append((fid, rid, t))
 
         if not combos_by_subject[sid]:
-            # determine reason
             if not allowed_faculty:
                 subject_feasible_reasons[sid].append("no_faculty_for_dept")
             else:
@@ -303,20 +367,17 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
     model = cp_model.CpModel()
     x = {}
 
-    # create boolean var for each allowed combo
     for (sid, fid, rid, t) in allowed_combos.keys():
         idx = slot_index_by_label.get(t, 0)
         var = model.NewBoolVar(f"x_s{sid}_f{fid}_r{rid}_t{idx}")
         x[(sid, fid, rid, t)] = var
 
-    # each subject at most once
-    for subj in course_subjects:
+    for subj in curriculum_subjects:
         sid = subj.get('id')
         vars_for_subj = [v for (s,f,r,t), v in x.items() if s == sid]
         if vars_for_subj:
             model.Add(sum(vars_for_subj) <= 1)
 
-    # faculty/time conflicts
     num_slots = len(slot_structs)
     for fobj in faculty:
         fid = fobj.get('id')
@@ -331,7 +392,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
             if vars_overlapping:
                 model.Add(sum(vars_overlapping) <= 1)
 
-    # room/time conflicts
     for robj in rooms:
         rid = robj.get('id')
         for i in range(num_slots):
@@ -345,30 +405,25 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
             if vars_overlapping:
                 model.Add(sum(vars_overlapping) <= 1)
 
-    # faculty load variables (for balancing)
     faculty_load_vars = {}
     for fobj in faculty:
         fid = fobj.get('id')
         assigned_vars = [v for (s, ff, rr, t), v in x.items() if ff == fid]
         if assigned_vars:
-            faculty_load_vars[fid] = model.NewIntVar(0, len(course_subjects), f"load_f{fid}")
+            faculty_load_vars[fid] = model.NewIntVar(0, len(curriculum_subjects), f"load_f{fid}")
             model.Add(faculty_load_vars[fid] == sum(assigned_vars))
 
-    max_load_var = model.NewIntVar(0, len(course_subjects), "max_faculty_load")
+    max_load_var = model.NewIntVar(0, len(curriculum_subjects), "max_faculty_load")
     for lv in faculty_load_vars.values():
         model.Add(lv <= max_load_var)
 
-    # objective: maximize number assigned (primary) and minimize max load (secondary)
-    total_assigned = model.NewIntVar(0, len(course_subjects), "total_assigned")
+    total_assigned = model.NewIntVar(0, len(curriculum_subjects), "total_assigned")
     if x:
         model.Add(total_assigned == sum(x.values()))
     else:
         model.Add(total_assigned == 0)
     model.Maximize(total_assigned * 1000 - max_load_var)
 
-    # -----------------------------
-    # SOLVE
-    # -----------------------------
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_solve_seconds
     solver.parameters.num_search_workers = search_workers
@@ -389,8 +444,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                     "subject_id": sid,
                     "subject_title": subj_obj.get('subject_title') if subj_obj else None,
                     "course_id": subj_obj.get('course_id') if subj_obj else None,
-                    # course_section displayed from course name
-                    "course_section": subj_obj.get('course_name') or (course_obj.get('name') if course_obj else None),
+                    "course_section": subj_obj.get('course_section') or course_obj.get('name') if course_obj else None,
                     "course_code": subj_obj.get('subject_code') if subj_obj else None,
                     "faculty_id": fid,
                     "faculty_name": faculty_obj.get('name') if faculty_obj else None,
@@ -401,8 +455,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                 })
                 assigned_subject_ids.add(sid)
 
-    # build unassigned list and reasons
-    for subj in course_subjects:
+    for subj in curriculum_subjects:
         sid = subj.get('id')
         if sid not in assigned_subject_ids:
             reasons = list(subject_feasible_reasons.get(sid, []))
@@ -417,12 +470,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                 "reasons": reasons
             })
 
-    # -----------------------------
-    # Post-check conflict detection for UI
-    # -----------------------------
     conflicts = []
-
-    # unassigned due to no combos -> human messages
     for u in unassigned:
         if not combos_by_subject.get(u['subject_id']):
             for r in u['reasons']:
@@ -441,7 +489,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                     "reasons": u.get('reasons')
                 })
 
-    # check assigned for overlaps (defensive)
     fac_slots = defaultdict(list)
     room_slots = defaultdict(list)
     for a in assigned:
@@ -475,7 +522,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
     for rid, lst in room_slots.items():
         detect_overlaps(lst, "room")
 
-    # defensive check: assigned to faculty during their unavailable slots
     for a in assigned:
         fid = a.get('faculty_id')
         t = a.get('time_slot')
@@ -489,7 +535,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
             })
 
     # -----------------------------
-    # Helper: force assign (local only)
+    # Helper: force assign
     # -----------------------------
     def force_assign(subject_id, faculty_id, room_id, time_slot):
         subject_obj = next((s for s in subjects if s.get('id') == subject_id), None)
@@ -518,9 +564,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
                 break
         return assignment
 
-    # -----------------------------
-    # Summary & cleanup
-    # -----------------------------
     total_curriculum = len(curriculum_subjects)
     total_assigned_count = len(assigned)
     total_unassigned_count = len(unassigned)
@@ -545,23 +588,22 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=30
         "force_assign_fn": force_assign  # programmatic only (not serializable)
     }
 
-
 if __name__ == "__main__":
-    try:
-        academic_year = None
-        semester_id = None
-        try:
-            if not sys.stdin.isatty():
-                payload = json.load(sys.stdin)
-                academic_year = payload.get("academicYear") or payload.get("academic_year")
-                semester_id = payload.get("semester_id") or payload.get("semesterId") or payload.get("semester")
-        except Exception:
-            pass
+    import json, sys, argparse, traceback
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--academic_year", type=str, default=None)
+    parser.add_argument("--semester", type=str, default=None)  # can be '1', '2', '1st Semester', etc.
+    args = parser.parse_args()
+
+    academic_year = args.academic_year
+    semester_id = args.semester  # keep as str or int
+
+    try:
         out = generate_schedule(academic_year=academic_year, semester_id=semester_id)
         out_for_json = {k: v for k, v in out.items() if k != "force_assign_fn"}
-        print(json.dumps(out_for_json, ensure_ascii=False, indent=2))
+        print(json.dumps(out_for_json, ensure_ascii=False, separators=(',', ':')))
     except Exception as e:
-        import traceback
         output = {"success": False, "message": str(e), "trace": traceback.format_exc()}
         print(json.dumps(output, ensure_ascii=False, indent=2))
+

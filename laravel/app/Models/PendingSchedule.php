@@ -10,15 +10,18 @@ class PendingSchedule extends Model
     use HasFactory;
 
     protected $fillable = [
-        'faculty',
-        'subject',
-        'time',
-        'classroom',
-        'course_code',
-        'units',
-        'academicYear',
-        'semester',
-        'user_id',
-        'batch_id'
-    ];
+    'faculty',
+    'subject',
+    'time',
+    'classroom',
+    'course_code',
+    'course_section',
+    'units',
+    'academicYear',
+    'semester',
+    'status',
+    'user_id',
+    'batch_id',
+];
+
 }

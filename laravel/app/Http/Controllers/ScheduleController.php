@@ -22,13 +22,30 @@ class ScheduleController extends Controller
                 ], 500);
             }
 
-            // Redirect Python stderr to a log file so stdout has only JSON
+            // Get input values from frontend
+            $academicYear = $request->input('academic_year');
+            $semester = $request->input('semester');
+            Log::info("Received parameters → Academic Year: {$academicYear}, Semester: {$semester}");
+
+            // Map semester string to ID
+            $semesterMap = ['1st Semester' => 1, '2nd Semester' => 2];
+            $semesterId = $semesterMap[$semester] ?? 1; // default to 1
+
+            // Define stderr log path BEFORE using it
             $stderrLog = storage_path('logs/scheduler_stderr.log');
-            $command = 'py ' . escapeshellarg($pythonScriptPath) . ' 2>' . escapeshellarg($stderrLog);
+
+            // Build Python command
+            $command = sprintf(
+                'py %s --academic_year=%s --semester=%d 2>%s',
+                escapeshellarg($pythonScriptPath),
+                escapeshellarg($academicYear ?? ''),
+                $semesterId,
+                escapeshellarg($stderrLog)
+            );
 
             Log::info('Running command: ' . $command);
 
-            // Execute Python script
+            // Run the Python script
             $output = shell_exec($command);
 
             if ($output === null || trim($output) === '') {
@@ -42,17 +59,17 @@ class ScheduleController extends Controller
 
             Log::info('Raw Python stdout (first 300 chars): ' . substr($output, 0, 300));
 
-            // Clean invisible characters & trim whitespace
+            // Clean invisible characters and BOM
             $cleanOutput = trim($output, "\x00..\x1F\x7F..\xFF \n\r\t");
             $cleanOutput = preg_replace('/^\xEF\xBB\xBF/', '', $cleanOutput);
 
             Log::info('Cleaned Python stdout (first 300 chars): ' . substr($cleanOutput, 0, 300));
 
-            // Decode JSON safely
+            // Decode JSON
             $decoded = json_decode($cleanOutput, true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
-                Log::error('JSON decode error: ' . json_last_error_msg() . '. See stderr: ' . $stderrLog);
+                Log::error('JSON decode error: ' . json_last_error_msg() . '. Check stderr: ' . $stderrLog);
                 return response()->json([
                     'success' => false,
                     'message' => 'Invalid JSON output from Python script. Check stderr log.',
