@@ -49,7 +49,7 @@ export default {
     closeModal() {
       this.$emit("update:show", false);
     },
-    async handleSubmit() {
+   async handleSubmit() {
   try {
     const payload = {
       name: this.form.name?.trim() || "",
@@ -65,16 +65,23 @@ export default {
       res = await axios.post("/api/rooms", payload);
     }
 
-   // After preparing payload
-    this.$emit("submit", payload); // send the properly formatted object
+    // ✅ Always emit consistent object (like FacultyModal)
+    const savedRoom = {
+      id: res.data.data?.id || res.data.id,
+      name: res.data.data?.name || res.data.name,
+      capacity: res.data.data?.capacity || res.data.capacity,
+      type: res.data.data?.type || res.data.type,
+      status: res.data.data?.status || res.data.status,
+    };
 
+    this.$emit("submit", savedRoom);
     this.closeModal();
+
   } catch (err) {
     console.error("Failed to save room:", err.response?.data || err);
     alert("Failed to save room. Check required fields!");
   }
 }
-
 
   }
 };

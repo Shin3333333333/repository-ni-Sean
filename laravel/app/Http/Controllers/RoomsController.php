@@ -53,10 +53,13 @@ public function update(Request $request, $id)
         'status' => 'required|string|in:Available,Unavailable',
     ]);
 
-    $room = Room::findOrFail($id); // find the room or throw 404
+    $room = Room::findOrFail($id);
     $room->update($request->only(['name', 'capacity', 'type', 'status']));
 
-    return response()->json($room);
+    return response()->json([
+        'data' => $room,
+        'message' => 'Room updated successfully'
+    ]);
 }
 
 

@@ -40,10 +40,12 @@
 
 
     <RoomModal
-      v-model:show="showRoomModal"
-      v-model:form="roomForm"
-      @submit="room => updateLists('room', room)"
+      :show="showRoomModal"
+      :form="roomForm"
+      @submit="updateLists('room', $event)"
+      @update:show="showRoomModal = $event"
     />
+
     <CourseModal
       v-model:show="showCourseModal"
       v-model:courseForm="courseForm"
@@ -221,11 +223,17 @@ export default {
           time_unavailable: (item.unavailableTimes || []).join(", "),
         };
 
-        if (!item.id) {
-          res = await axios.post("/api/professors", payload);
-        } else {
-          res = await axios.put(`/api/professors/${item.id}`, payload);
-        }
+     if (!item.id) {
+      // Prevent accidental double submission
+      if (this.facultyList.some(f => f.name === payload.name && f.department === payload.department)) {
+        console.warn("Duplicate faculty prevented");
+        return;
+      }
+
+      res = await axios.post("/api/professors", payload);
+    } else {
+      res = await axios.put(`/api/professors/${item.id}`, payload);
+    }
 
         const data = res.data.data || res.data;
 
@@ -243,32 +251,44 @@ export default {
       };
 
 
-        if (!item.id) this.facultyList = [...this.facultyList, prof]; // force reactivity
-        else {
-          const idx = this.facultyList.findIndex(f => f.id === prof.id);
-          if (idx > -1) this.facultyList.splice(idx, 1, prof);
-        }
+      const idx = this.facultyList.findIndex(f => f.id === prof.id);
+
+      if (idx === -1) {
+        // ✅ New faculty → add to list
+        this.facultyList = [...this.facultyList, prof];
+      } else {
+        // ✅ Existing faculty → update
+        this.facultyList.splice(idx, 1, prof);
+      }
+
 
         this.showFacultyModal = false
 
 
       
     }
- else if (type === "room") {
-  if (!item.id) {
-    const res = await axios.post("/api/rooms", item); // item now has payload
-    updated = res.data.data || res.data;
-    this.roomList.push(updated);
-  } else {
-    const res = await axios.put(`/api/rooms/${item.id}`, item);
-    updated = res.data.data || res.data;
-    const idx = this.roomList.findIndex(r => r.id === updated.id);
-    if (idx > -1) this.roomList.splice(idx, 1, updated);
+else if (type === "room") {
+  // Make sure we received a valid object
+  if (!item || !item.id || !item.name) {
+    console.warn("⚠️ Ignored invalid room data:", item);
+    return;
   }
+
+  // Find room in the current list
+  const idx = this.roomList.findIndex(r => r.id === item.id);
+
+  if (idx !== -1) {
+    // ✅ Update existing room
+    this.roomList.splice(idx, 1, item);
+  } else {
+    // ✅ Add new room reactively
+    this.roomList = [...this.roomList, item];
+  }
+
+  // Reset form + close modal
   this.roomForm = {};
   this.showRoomModal = false;
 }
-
 
       } catch (err) {
         console.error(`Failed to update ${type}:`, err.response?.data || err);
@@ -292,9 +312,10 @@ export default {
 
 
     openEditRoomModal(room) {
-      this.roomForm = { ...room };
-      this.showRoomModal = true;
-    },
+  this.roomForm = JSON.parse(JSON.stringify(room)); // ✅ deep clone
+  this.showRoomModal = true;
+}
+,
 
     async openEditCourseModal(course) {
       try {

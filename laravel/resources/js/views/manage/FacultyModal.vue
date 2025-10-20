@@ -181,11 +181,8 @@ setup() {
 
 
             // FacultyModal.vue handleSubmit()
-      this.$emit("submit", {
-        ...this.localForm,
-        maxLoad: this.localForm.maxLoad,          // keep localForm keys
-        unavailableTimes: [...this.localForm.unavailableTimes]
-      });
+      this.$emit("submit", savedFaculty);
+
 
         this.closeModal();
       } catch (err) {

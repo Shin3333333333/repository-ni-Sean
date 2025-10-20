@@ -1,6 +1,6 @@
 # ai/generate_json.py
 import json
-from schedule import generate_schedule
+from newtry import generate_schedule
 import os
 
 # Path to Vue public folder

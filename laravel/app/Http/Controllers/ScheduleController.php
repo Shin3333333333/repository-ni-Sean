@@ -10,7 +10,7 @@ class ScheduleController extends Controller
     public function generateSchedule(Request $request)
     {
         try {
-            $pythonScriptPath = base_path('ai/schedule.py');
+            $pythonScriptPath = base_path('ai/newtry.py');
             Log::info('Attempting to run Python script: ' . $pythonScriptPath);
 
             if (!file_exists($pythonScriptPath)) {
@@ -44,6 +44,8 @@ class ScheduleController extends Controller
             );
 
             Log::info('Running command: ' . $command);
+            Log::info('Python script path exists? ' . (file_exists($pythonScriptPath) ? 'YES' : 'NO'));
+            Log::info('Command to run: ' . $command);
 
             // Run the Python script
             $output = shell_exec($command);
@@ -79,10 +81,17 @@ class ScheduleController extends Controller
 
             Log::info('Successfully decoded schedule JSON. Entries: ' . count($decoded['schedule'] ?? []));
 
-            return response()->json([
+           return response()->json([
                 'success' => $decoded['success'] ?? true,
                 'message' => $decoded['message'] ?? 'Schedule generated successfully!',
-                'schedule' => $decoded['schedule'] ?? []
+                'schedule' => $decoded['schedule'] ?? [],
+                'unassigned' => $decoded['unassigned'] ?? [],
+                'stats' => [
+                    'total_subjects' => $decoded['stats']['total_subjects'] ?? 0,
+                    'assigned' => $decoded['stats']['assigned'] ?? 0,
+                    'unassigned' => $decoded['stats']['unassigned'] ?? 0,
+                ],
+
             ]);
 
         } catch (\Exception $e) {

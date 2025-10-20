@@ -2,22 +2,31 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\LoginController;
-use App\Http\Controllers\ProfessorsController;
-use App\Http\Controllers\CoursesController;
-use App\Http\Controllers\SubjectsController;
-use App\Http\Controllers\SchedulesController;
-use App\Http\Controllers\ErrorLogsController;
-use App\Http\Controllers\RoomsController;
-use App\Http\Controllers\CurriculumController;
-use App\Http\Controllers\ScheduleController;
-use App\Http\Controllers\PendingScheduleController;
-/* ----------------- AUTH ----------------- */
-// Temporarily remove throttle middleware for testing
-Route::post('/login', [LoginController::class, 'login']);
+use App\Http\Controllers\{
+    ProfessorsController,
+    CoursesController,
+    SubjectsController,
+    SchedulesController,
+    ErrorLogsController,
+    RoomsController,
+    CurriculumController,
+    ScheduleController,
+    PendingScheduleController
+};
 
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
+Route::post('/login', [LoginController::class, 'login']);
 Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth:sanctum');
 
-/* ----------------- RESOURCES ----------------- */
+/*
+|--------------------------------------------------------------------------
+| Core Resources
+|--------------------------------------------------------------------------
+*/
 Route::apiResource('professors', ProfessorsController::class);
 Route::apiResource('courses', CoursesController::class);
 Route::apiResource('subjects', SubjectsController::class);
@@ -25,33 +34,41 @@ Route::apiResource('schedules', SchedulesController::class);
 Route::apiResource('error-logs', ErrorLogsController::class);
 Route::apiResource('rooms', RoomsController::class);
 
-
-
+/*
+|--------------------------------------------------------------------------
+| Curriculum Management
+|--------------------------------------------------------------------------
+*/
 Route::get('/curriculums', [CurriculumController::class, 'index']);
 Route::post('/curriculums', [CurriculumController::class, 'store']);
 Route::get('/curriculums/{id}/subjects', [CurriculumController::class, 'subjects']);
 Route::delete('/curriculums/{id}', [CurriculumController::class, 'destroy']);
 
-Route::post('/courses', [CoursesController::class, 'store']);
-// routes/api.php
-Route::get('/semesters', function() {
-    return \App\Models\Semester::all();
-});
-Route::apiResource('courses', CoursesController::class);
+/*
+|--------------------------------------------------------------------------
+| Semesters
+|--------------------------------------------------------------------------
+*/
+Route::get('/semesters', fn() => \App\Models\Semester::all());
 
+/*
+|--------------------------------------------------------------------------
+| Schedule Generation & Pending Management
+|--------------------------------------------------------------------------
+*/
 Route::get('/schedule/data', function () {
     return response()->json([
-        'courses' => App\Models\Course::with('subjects')->get(),
-        'faculty' => App\Models\Professor::all(),
-        'rooms' => App\Models\Room::all(),
-        'time_slots' => ['Mon 8-10', 'Mon 10-12', 'Tue 8-10', 'Tue 10-12'] // or from DB if you have one
+        'courses' => \App\Models\Course::with('subjects')->get(),
+        'faculty' => \App\Models\Professor::all(),
+        'rooms' => \App\Models\Room::all(),
+        'time_slots' => ['Mon 8-10', 'Mon 10-12', 'Tue 8-10', 'Tue 10-12'],
     ]);
 });
+
 Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
 Route::post('/save-schedule', [PendingScheduleController::class, 'store']);
 Route::get('/pending-schedules', [PendingScheduleController::class, 'index']);
 Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'show']);
-
-Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);
-Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
 Route::put('/pending-schedules/{batchId}/update', [PendingScheduleController::class, 'updateBatch']);
+Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
+Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);

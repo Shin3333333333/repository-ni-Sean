@@ -13,11 +13,11 @@ class CoursesController extends Controller
      */
     public function index()
     {
-        return Course::with('curriculum')->get();
+        return Course::with('curriculum', 'subjects')->get();
     }
 
     /**
-     * Store a new course and clone subjects from the curriculum if provided
+     * Store a new course and clone subjects only for its year level
      */
     public function store(Request $request)
     {
@@ -31,16 +31,17 @@ class CoursesController extends Controller
         // Create the new course
         $course = Course::create($validated);
 
-        // Clone subjects from curriculum if applicable
+        // Clone subjects from curriculum only for the course's year
         if ($course->curriculum_id) {
             $subjects = Subject::where('curriculum_id', $course->curriculum_id)
-                ->whereNull('course_id') // avoid re-cloning existing course-linked subjects
+                ->whereNull('course_id')
+                ->where('year_level', $course->year) // only current year subjects
                 ->get();
 
             foreach ($subjects as $subject) {
                 Subject::create([
                     'curriculum_id' => $subject->curriculum_id,
-                    'course_id'     => $course->id, // now linked to this course
+                    'course_id'     => $course->id,
                     'year_level'    => $subject->year_level,
                     'semester_id'   => $subject->semester_id,
                     'subject_code'  => $subject->subject_code,
@@ -62,15 +63,14 @@ class CoursesController extends Controller
     /**
      * Show a specific course with its curriculum and related subjects
      */
-  public function show($id)
-{
-    $course = Course::with(['curriculum', 'subjects'])->findOrFail($id);
+    public function show($id)
+    {
+        $course = Course::with(['curriculum', 'subjects'])->findOrFail($id);
 
-    return response()->json([
-        'course' => $course
-    ]);
-}
-
+        return response()->json([
+            'course' => $course
+        ]);
+    }
 
     /**
      * Update a course
@@ -87,18 +87,47 @@ class CoursesController extends Controller
             'subjects' => 'nullable|array'
         ]);
 
+        // Check if curriculum changed
+        $curriculumChanged = isset($validated['curriculum_id']) && $validated['curriculum_id'] != $course->curriculum_id;
+
         // Update course info
         $course->update($validated);
 
-        // ✅ If subjects are included in the request, update them too
+        // If subjects are included, update existing ones
         if (!empty($validated['subjects'])) {
             foreach ($validated['subjects'] as $subjectData) {
                 if (isset($subjectData['id'])) {
-                    // Update existing subject
                     Subject::where('id', $subjectData['id'])
                         ->where('course_id', $course->id)
                         ->update($subjectData);
                 }
+            }
+        }
+
+        // If curriculum changed, re-clone only subjects for the course's year
+        if ($curriculumChanged && $course->curriculum_id) {
+            // Delete old subjects linked to this course
+            Subject::where('course_id', $course->id)->delete();
+
+            // Clone new subjects from the new curriculum for the course's year
+            $subjects = Subject::where('curriculum_id', $course->curriculum_id)
+                ->whereNull('course_id')
+                ->where('year_level', $course->year)
+                ->get();
+
+            foreach ($subjects as $subject) {
+                Subject::create([
+                    'curriculum_id' => $subject->curriculum_id,
+                    'course_id'     => $course->id,
+                    'year_level'    => $subject->year_level,
+                    'semester_id'   => $subject->semester_id,
+                    'subject_code'  => $subject->subject_code,
+                    'subject_title' => $subject->subject_title,
+                    'units'         => $subject->units,
+                    'hours'         => $subject->hours,
+                    'pre_requisite' => $subject->pre_requisite ?? 'None',
+                    'type'          => $subject->type ?? 'Major',
+                ]);
             }
         }
 
@@ -111,20 +140,18 @@ class CoursesController extends Controller
     /**
      * Delete a course and its linked subjects
      */
-public function destroy($id)
-{
-    $course = Course::findOrFail($id);
+    public function destroy($id)
+    {
+        $course = Course::findOrFail($id);
 
-    // Delete only subjects linked to this course
-    Subject::where('course_id', $course->id)->delete();
+        // Delete only subjects linked to this course
+        Subject::where('course_id', $course->id)->delete();
 
-    // Delete the course
-    $course->delete();
+        // Delete the course
+        $course->delete();
 
-    return response()->json([
-        'message' => 'Course and its associated subjects deleted successfully'
-    ]);
-}
-
-
+        return response()->json([
+            'message' => 'Course and its associated subjects deleted successfully'
+        ]);
+    }
 }

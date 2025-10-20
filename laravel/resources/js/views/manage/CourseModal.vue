@@ -39,6 +39,7 @@
           <div class="form-group col-6">
             <label>Curriculum:</label>
             <div class="grid-row gap-2">
+              <!-- Dropdown always available -->
               <select class="col-10" v-model="courseForm.curriculum_id" required>
                 <option value="">Select Curriculum</option>
                 <option
@@ -49,42 +50,47 @@
                   {{ curr.name }}
                 </option>
               </select>
-              <label
-                for="curriculum-upload"
-                class="upload-icon col-2"
-                title="Upload Curriculum"
-                style="cursor: pointer; text-align: center;"
-              >📁</label>
-              <input
-                id="curriculum-upload"
-                type="file"
-                @change="uploadCurriculum"
-                accept=".xlsx,.xls"
-                style="display: none;"
-              />
+
+              <!-- Upload only visible when adding a new course -->
+              <template v-if="!courseForm.id">
+                <label
+                  for="curriculum-upload"
+                  class="upload-icon col-2"
+                  title="Upload Curriculum"
+                  style="cursor: pointer; text-align: center;"
+                >📁</label>
+                <input
+                  id="curriculum-upload"
+                  type="file"
+                  @change="uploadCurriculum"
+                  accept=".xlsx,.xls"
+                  style="display: none;"
+                />
+              </template>
             </div>
           </div>
         </div>
 
         <!-- Subjects Table (Only when editing) -->
         <div
-          class="form-group col-12"
-          v-if="courseForm.id && courseForm.subjects && courseForm.subjects.length"
-        >
+      class="form-group col-12"
+      v-if="courseForm.id"
+    >
+
           <div class="flex justify-between items-center mb-1">
             <label>Subjects:</label>
 
-            <!-- Semester Filter -->
-            <select v-model.number="selectedSemester" class="semester-filter">
-              <option value="">All Semesters</option>
-              <option
-                v-for="semester in semesterList"
-                :key="semester.id"
-                :value="Number(semester.id)"
-              >
-                {{ semester.name }}
-              </option>
-            </select>
+              <select v-model="selectedSemesterKey" class="semester-filter">
+      <option value="">All Semesters</option>
+      <option
+        v-for="option in semesterFilterOptions"
+        :key="option.key"
+        :value="option.key"
+      >
+        {{ option.label }}
+      </option>
+    </select>
+
 
           </div>
 
@@ -141,33 +147,84 @@ export default {
   emits: ["update:show", "update:courseForm", "submit", "upload"],
   data() {
     return {
-      selectedSemester: ""  // currently selected semester
+      selectedSemesterKey: "", // current year-semester filter
+      allCurriculumSubjects: [] // store subjects loaded from selected curriculum
     };
   },
   computed: {
-    // Filter subjects by selected semester
+    // Filter subjects by selected year-semester
     filteredSubjects() {
-      if (!this.selectedSemester) return this.courseForm.subjects || [];
+      if (!this.selectedSemesterKey) return this.courseForm.subjects || [];
       return (this.courseForm.subjects || []).filter(
-        s => Number(s.semester_id) === this.selectedSemester
+        s => `${s.year_level}-${s.semester_id}` === this.selectedSemesterKey
       );
+    },
+
+    // Generate unique year-semester options
+    semesterFilterOptions() {
+      if (!this.courseForm.subjects) return [];
+      const options = [];
+      this.courseForm.subjects.forEach(sub => {
+        const key = `${sub.year_level}-${sub.semester_id}`;
+        const label = `${sub.year_level} Year – ${this.getSemesterName(sub.semester_id)}`;
+        if (!options.some(o => o.key === key)) {
+          options.push({ key, label });
+        }
+      });
+      return options;
     }
   },
   watch: {
-    // Initialize selectedSemester when modal opens or courseForm changes
     courseForm: {
       immediate: true,
       handler(val) {
-        if (val.subjects && val.subjects.length) {
-          // Default to the semester of the first subject
-          this.selectedSemester = Number(val.subjects[0].semester_id);
+        if (!val.subjects) val.subjects = [];
+        if (val.subjects.length) {
+          const first = val.subjects[0];
+          this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
         } else {
-          this.selectedSemester = "";
+          this.selectedSemesterKey = "";
+        }
+      }
+    },
+    "courseForm.curriculum_id": {
+      immediate: true,
+      async handler(curriculumId) {
+        if (!curriculumId || !this.courseForm.year) return;
+
+        // Fetch subjects for the selected curriculum from the backend
+        try {
+          const res = await fetch(`/api/curriculums/${curriculumId}/subjects`);
+          const subjects = await res.json();
+
+          // Filter subjects for the selected course year only
+          const filtered = subjects.filter(
+            s => s.year_level === this.courseForm.year
+          );
+
+          // Clone subjects in the local courseForm (so table shows immediately)
+          this.courseForm.subjects = filtered.map(s => ({
+            ...s,
+            id: s.id, // keep the original id if exists
+            course_id: null // mark as not yet linked to a course
+          }));
+
+          // Set the default semester filter
+          if (this.courseForm.subjects.length) {
+            const first = this.courseForm.subjects[0];
+            this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
+          }
+        } catch (err) {
+          console.error("Failed to load curriculum subjects:", err);
         }
       }
     }
   },
   methods: {
+    getSemesterName(id) {
+      const sem = this.semesterList.find(s => s.id === Number(id));
+      return sem ? sem.name : "";
+    },
     handleModalClick() {
       this.$emit("update:show", false);
     },
@@ -177,18 +234,18 @@ export default {
     uploadCurriculum(event) {
       this.$emit("upload", event);
     },
-     addCourse() {
-    // Normalize year to include " Year" before submission
-    if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
-      this.courseForm.year = `${this.courseForm.year} Year`;
+    addCourse() {
+      // Normalize year to include " Year" before submission
+      if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
+        this.courseForm.year = `${this.courseForm.year} Year`;
+      }
+      this.$emit("submit", this.courseForm);
+      this.$emit("update:show", false);
     }
-    this.$emit("submit", this.courseForm);
-    this.$emit("update:show", false);
-  }
-
   }
 };
 </script>
+
 
 <style scoped>
 .modal-overlay {
