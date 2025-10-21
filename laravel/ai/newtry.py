@@ -6,7 +6,8 @@ import json
 import sys
 import argparse
 from collections import defaultdict
-
+import heapq
+import itertools
 
 def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60, search_workers=8):
     import sys
@@ -647,20 +648,127 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # -----------------------------
     # Populate possible_assignments for unassigned subjects
     # -----------------------------
+    # -----------------------------
+    # Populate possible_assignments for unassigned subjects (one best per faculty)
+    # -----------------------------
+    # Precompute current assigned load per faculty id (from solver assignments)
+    # 1) build current loads from already assigned schedule
+    current_load_by_faculty = defaultdict(int)
+    for a in assigned:
+        fid = int(a.get('faculty_id'))  # Ensure it's an integer
+
+        if fid:
+            try:
+                current_load_by_faculty[fid] += int(a.get('units', 0))
+            except Exception:
+                current_load_by_faculty[fid] += (a.get('units', 0) or 0)
+
+    # build occupied slot maps
+    occupied_slots_by_faculty = defaultdict(set)
+    occupied_slots_by_room = defaultdict(set)
+    for a in assigned:
+        t = a.get('time_slot')
+        fid = a.get('faculty_id')
+        rid = a.get('room_id')
+        if t:
+            if fid:
+                occupied_slots_by_faculty[fid].add(t)
+            if rid:
+                occupied_slots_by_room[rid].add(t)
+
+    top_per_faculty = 3
+    heap_counter = itertools.count()
+
+    # Iterate through unassigned subjects
     for u in unassigned:
         sid = u['subject_id']
-        possible = []
+        
+        # Find the corresponding subject in the curriculum_subjects list using subject_id
+        subj_obj = next((s for s in curriculum_subjects if s.get('id') == sid), None)
+        
+        # If found, retrieve subject details; otherwise, set to default values
+        subj_dept = subj_obj.get('dept') if subj_obj else None
+        subj_course_code = subj_obj.get('subject_code') if subj_obj else None
+        subj_course_section = subj_obj.get('course_section') if subj_obj else None  # Get course_section
+        subj_units = subj_obj.get('units', 3) if subj_obj else (u.get('units') or 3)
+
+        candidates_by_faculty = defaultdict(list)
+
+        # Iterate through the possible combinations of faculty and rooms for the subject
         for fid, rid, t in combos_by_subject.get(sid, []):
             fobj = next((f for f in faculty if f.get('id') == fid), None)
             robj = next((r for r in rooms if r.get('id') == rid), None)
-            possible.append({
+            if not fobj or not robj:
+                continue
+
+            # Skip if faculty or room already booked
+            if t in occupied_slots_by_faculty[fid] or t in occupied_slots_by_room[rid]:
+                continue
+
+            try:
+                slot_struct = parse_slot_label(t)
+            except Exception:
+                slot_struct = {"day": None, "start": None, "end": None}
+
+            faculty_dept = fobj.get('department')
+            dept_match = bool(subj_dept and faculty_dept and subj_dept == faculty_dept)
+            room_cap = robj.get('capacity')
+            faculty_current = current_load_by_faculty.get(fid, 0)
+            faculty_max = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
+
+            # Scoring logic
+            score = 0
+            if dept_match:
+                score += 10000
+            if faculty_max is not None and (faculty_current + subj_units) > faculty_max:
+                score -= 5000
+            if room_cap:
+                try:
+                    score += int(room_cap)
+                except Exception:
+                    pass
+            if slot_struct.get("start") is not None:
+                score -= slot_struct.get("start")
+
+            candidate = {
                 "faculty_id": fid,
-                "faculty_name": fobj.get('name') if fobj else None,
+                "faculty_name": fobj.get('name'),
+                "faculty_department": faculty_dept,
+                "faculty_type": "full_time" if fobj.get('is_full_time') else "part_time",
+                "faculty_current_load": faculty_current,
+                "faculty_max_load": faculty_max,
                 "room_id": rid,
-                "room_name": robj.get('name') if robj else None,
-                "time_slot": t
-            })
+                "room_name": robj.get('name'),
+                "room_capacity": room_cap,
+                "time_slot_label": t,
+                "time_day": slot_struct.get("day"),
+                "time_start": slot_struct.get("start"),
+                "time_end": slot_struct.get("end"),
+                "department_match": dept_match,
+                "score": score,
+            }
+
+            # Add to the heap for each faculty
+            heapq.heappush(candidates_by_faculty[fid], (-score, next(heap_counter), candidate))
+
+        # Flatten the top N candidates
+        combined = []
+        for fid, heap in candidates_by_faculty.items():
+            top_n = heapq.nsmallest(top_per_faculty, heap)
+            for _, _, cand in top_n:
+                combined.append(cand)
+
+        possible = sorted(combined, key=lambda x: x.get("score", 0), reverse=True)
+
+        # Add subject details including course code and course section to the unassigned subject
+        u["subject_display"] = f"{subj_course_code + ' - ' if subj_course_code else ''}{u.get('subject_title') or u.get('subject') or 'Untitled'}"
+        u["subject_code"] = subj_course_code  # Pass subject_code separately for the frontend
+        u["course_section"] = subj_course_section if subj_course_section is not None else "-"  # Pass course_section separately for the frontend
         u["possible_assignments"] = possible
+
+
+
+
     total_curriculum = len(curriculum_subjects)
     total_assigned_count = len(assigned)
     total_unassigned_count = len(unassigned)

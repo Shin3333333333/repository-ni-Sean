@@ -164,16 +164,9 @@
           <button class="collapse" @click="sidebarOpen = false">×</button>
         </div>
 
-        <!-- ✅ Simplified Summary -->
-        <div class="sidebar-section">
-          <h5>Summary</h5>
-          <div v-if="summary || assignedCount || unassigned.length">
-            <p><strong>Total Subjects:</strong> {{ summary?.total_curriculum_subjects ?? (assignedCount + unassigned.length) }}</p>
-            <p><strong>Assigned Subjects:</strong> {{ summary?.total_assigned ?? assignedCount }}</p>
-            <p><strong>Unassigned Subjects:</strong> {{ summary?.total_unassigned ?? unassigned.length }}</p>
-          </div>
-          <div v-else><p>No summary available.</p></div>
-        </div>
+       <button @click="undoLastAssignment" class="undo-btn">Undo Last</button>
+      <button @click="undoAllAssignments" class="undo-all-btn">Undo All</button>
+
 
         <!-- 🎯 Focused Unassigned Section -->
 <!-- 🎯 Unassigned Subjects Section -->
@@ -181,7 +174,7 @@
   <h5>Unassigned Subjects Overview</h5>
 
   <div class="summary-box">
-    <p><strong>Total Subjects:</strong> {{ summary?.total_curriculum_subjects ?? 0 }}</p>
+     <p><strong>Total Subjects:</strong> {{ summary?.total_curriculum_subjects ?? (assignedCount + unassigned.length) }}</p>
     <p><strong>Assigned by AI:</strong> {{ summary?.total_assigned ?? assignedCount }}</p>
     <p><strong>Unassigned:</strong> {{ summary?.total_unassigned ?? unassigned.length }}</p>
   </div>
@@ -193,50 +186,56 @@
       class="unassigned-item"
     >
       <div class="ua-top">
-        <div class="ua-title">{{ u.subject_title || u.subject || 'Untitled Subject' }}</div>
+       <div class="ua-title">{{ u.course_code || u.subject_title || u.subject || 'Untitled Subject' }}</div>
+
         <div class="ua-meta">
           Course: {{ u.course_code || u.course || '—' }} — Units: {{ u.units ?? 0 }}
         </div>
       </div>
 
       <!-- 🧠 Show unassignment reason -->
-      <div class="ua-reason" v-if="findUnassignedReason(u.subject_id)">
+       <!-- <div class="ua-reason" v-if="findUnassignedReason(u.subject_id)">
     ⚠️ {{ findUnassignedReason(u.subject_id).description }}
-  </div>
+  </div> -->
 
 
-      <!-- 🔍 Suggested Assignments -->
-      <div class="ua-suggestions">
-  <p><strong>Possible Faculty:</strong></p>
+<div class="ua-suggestions">
+  <p><strong>Possible Assignments (AI Suggestions):</strong></p>
   <ul>
-    <li
-  v-for="f in suggestedFaculties(u)"
-  :key="f.id"
-  :class="{ overload: f.willExceed }"
-  class="faculty-item"
->
-  👩‍🏫 {{ f.name }} ({{ f.department }}, Max Load: {{ f.max_load }}, Current Load: {{ f.currentLoad }})
-  
-  <button
-    v-if="!f.willExceed"
-    @click.stop="assignToFaculty(u, f)"
-    class="assign-btn"
-  >
-    Assign
-  </button>
-  
-  <button
-    v-else
-    @click.stop="confirmOverloadAssign(u, f)"
-    class="assign-btn overload-btn"
-  >
-    ⚠️ Assign
-  </button>
+    <li v-for="pa in availableAssignments(u)" :key="`${u.subject_id}-${pa.faculty_id}`" class="faculty-item">
+  <template v-if="facultyStateResult = facultyState(pa.faculty_id, u.units, u.department)">
+    👩‍🏫 {{ pa.faculty_name || 'Unknown Faculty' }}
+    ({{ getFacultyDepartment(pa.faculty_id) || 'No Dept' }},
+    Load: {{ facultyStateResult.current }}/{{ facultyStateResult.max }})
+
+    <button
+      v-if="!facultyStateResult.willExceed"
+      @click.stop="assignToFaculty(u, pa)"
+      class="assign-btn"
+    >Assign</button>
+
+    <button
+      v-else
+      @click.stop="confirmOverloadAssign(u, pa)"
+      class="assign-btn overload-btn"
+    >⚠️ Assign</button>
+
+    <div class="state-hint">
+      <small v-if="facultyStateResult.mismatch">🚫 Dept Mismatch</small>
+      <small v-else-if="facultyStateResult.willExceed">⚠️ Overload</small>
+      <small v-else-if="facultyStateResult.underload">🟡 Underload</small>
+      <small v-else>✅ Suitable</small>
+    </div>
+  </template>
 </li>
 
-    <li v-if="!suggestedFaculties(u).length" class="no-suggestion">No suitable faculty found.</li>
+
+    <li v-if="!(u.possible_assignments || []).length" class="no-suggestion">
+      No suggested assignments from AI.
+    </li>
   </ul>
 </div>
+
 
     </div>
   </div>
@@ -294,6 +293,12 @@ export default {
       conflicts: [],
       unassignedReasons: [],
       loading: false,
+      usedSlots: {},
+      usedRooms: {},
+      undoStack: [],
+      currentLoadByFaculty: {},
+      occupiedSlotsByFaculty: {},
+      occupiedSlotsByRoom: {},
     };
   },
   setup() {
@@ -305,9 +310,8 @@ export default {
       this.groupedSchedules = {};
       this.unassigned = [];
       this.summary = null;
-      this.conflicts = result.conflicts || result.conflict_list || [];
-      this.unassignedReasons = result.unassigned_reasons || result.conflicts?.filter(c => c.type === "unassigned_reason") || [];
-
+      this.conflicts = [];
+      this.unassignedReasons = [];
       this.selectedFaculty = "All";
       this.selectedCourse = "All";
     },
@@ -385,369 +389,340 @@ export default {
       return this.assignedList.length;
     },
     facultyLoads() {
-    const loads = {};
-    Object.values(this.groupedSchedules).forEach(entries => {
-      entries.forEach(e => {
-        const fid = e.faculty || e.faculty_name;
-        if (!loads[fid]) loads[fid] = 0;
-        loads[fid] += Number(e.units || 0);
+      const loads = {};
+      Object.values(this.groupedSchedules).forEach(entries => {
+        entries.forEach(e => {
+          const fid = e.faculty || e.faculty_name;
+          if (!loads[fid]) loads[fid] = 0;
+          loads[fid] += Number(e.units || 0);
+        });
       });
-    });
-    return loads;
-  },
+      return loads;
+    },
   },
   methods: {
-    findUnassignedReason(subjectId) {
-    return this.unassignedReasons.find(
-      (r) => r.subject_id === subjectId
-    );
-  },
-    confirmOverloadAssign(subject, faculty) {
-  const confirmAssign = confirm(
-    `Assigning "${subject.subject_title || subject.subject}" to ${faculty.name} will exceed their max load. Proceed?`
-  );
-  if (confirmAssign) {
-    // Force assignment ignoring max load
-    this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
+  assignToFaculty(subject, option) {
+  const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
+  const roomKey = `${option.room_id}|${option.time_slot_label}`;
 
-    if (!this.groupedSchedules[faculty.name]) {
-      this.$set(this.groupedSchedules, faculty.name, []);
-    }
-
-    this.groupedSchedules[faculty.name].push({
-      subject: subject.subject || subject.subject_title,
-      time: subject.time || "",
-      classroom: subject.classroom || "",
-      courseCode: subject.courseCode || subject.course_code || "",
-      courseSection: subject.courseSection || subject.course_section || "",
-      units: subject.units || 0,
-      faculty: faculty.name,
-      _localId: subject._localId,
-      _assignedManually: true
-    });
-
-    this.showSuccess(`Assigned "${subject.subject || subject.subject_title}" to ${faculty.name} (overload)`);
-  }
-}
-,
-    assignToFaculty(subject, faculty) {
-  // Ensure faculty has a valid name
-  const facultyName = faculty.name || faculty.faculty_name || faculty.full_name || "Unknown";
-
-  const currentLoad = this.facultyLoads[facultyName] || 0;
-  if (currentLoad + (subject.units || 0) > faculty.max_load) {
-    // handled via confirmOverloadAssign
+  if (this.usedSlots[slotKey] || this.usedRooms[roomKey]) {
+    this.showError("This assignment conflicts with an existing schedule.");
     return;
   }
 
-  // Remove from unassigned
-  this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
+  const facultyName = option.faculty_name || "Unknown";
+  if (!this.groupedSchedules[facultyName]) this.groupedSchedules[facultyName] = [];
+  
+  // Fallback values for courseCode and courseSection
+  const courseCode = subject.subject_code || subject.subjectCode || "-";
+  console.log(subject);  // Log the subject to verify if course_section is available
+ 
+  const courseSection = subject.course_section ||  "-";
 
-  // Add to groupedSchedules
-  if (!this.groupedSchedules[facultyName]) {
-    this.$set(this.groupedSchedules, facultyName, []);
-  }
+  console.log(Object.keys(subject));  // This will list all available keys in the subject object
+
+  console.log('Course Code:', courseCode);
+  console.log('Course Section:', courseSection);
 
   this.groupedSchedules[facultyName].push({
-    subject: subject.subject || subject.subject_title,
-    time: subject.time || "",
-    classroom: subject.classroom || "",
-    courseCode: subject.courseCode || subject.course_code || "",
-    courseSection: subject.courseSection || subject.course_section || "",
+    subject: subject.subject_display || subject.subject_title || subject.subject,
+    time: option.time_slot_label,
+    classroom: option.room_name,
+    courseCode: courseCode, // Use the course_code property of the subject
+    courseSection: courseSection, // Use the course_section property of the subject
     units: subject.units || 0,
     faculty: facultyName,
+    subject_id: subject.subject_id,
     _localId: subject._localId,
     _assignedManually: true
   });
 
-  this.showSuccess(`Assigned "${subject.subject || subject.subject_title}" to ${facultyName}`);
+  this.usedSlots[slotKey] = true;
+  this.usedRooms[roomKey] = true;
+
+  const f = this.facultyList.find(fac => fac.id === option.faculty_id);
+  if (f) f.current_load = (f.current_load || 0) + (subject.units || 0);
+
+  // Remove from unassigned
+  this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
+
+  this.undoStack.push({ type: "manual_assign", facultyName, subject, option });
+  this.showSuccess(`Assigned "${subject.subject_display}" to ${facultyName} (manual/forced)`);
+
+  this.refreshAISuggestions();
 }
 
 ,
-
-  suggestedFaculties(subject) {
-  if (!subject.department) return [];
-
-  return this.facultyList
-    .map(f => {
-      // current load; fallback to 0
-      const currentLoad = f.current_load ?? 0;
-      const willExceed = currentLoad + (subject.units || 0) > f.max_load;
-
-      return {
-        ...f,
-        currentLoad,
-        canAssign: currentLoad < f.max_load,
-        willExceed,
-      };
-    })
-    .filter(f => f.department?.includes(subject.department))
-    .sort((a, b) => {
-      // prioritize those who can take without overload
-      if (a.canAssign && !b.canAssign) return -1;
-      if (!a.canAssign && b.canAssign) return 1;
-      return a.currentLoad - b.currentLoad; // lower load first
-    })
-    .slice(0, 5); // top 5 suggestions
-},
-
-  suggestedRooms(subject) {
-    return this.roomList
-      .filter(r => r.status === "Active")
-      .slice(0, 3);
+     getFacultyDepartment(facultyId) {
+    const faculty = this.facultyList.find(f => f.id === facultyId);
+    return faculty?.department || null;
   },
-  
-    showMessage(text, type = "info") {
-      this.message = text;
-      this.messageType = type;
-      setTimeout(() => (this.message = ""), 4000);
-    },
-    showSuccess(text) {
-      this.showMessage(text, "success");
-    },
-    showError(text) {
-      this.showMessage(text, "error");
-    },
-    toggleEditMode() {
-      this.editMode = !this.editMode;
-    },
-    addEntry(groupKey) {
-      if (!this.groupedSchedules[groupKey])
-        this.$set(this.groupedSchedules, groupKey, []);
-      this.groupedSchedules[groupKey].push({
-        subjectCode: "",
-        subject: "",
-        time: "",
-        classroom: "",
-        courseCode: "",
-        courseSection: "",
-        units: 0,
-        faculty: groupKey,
-        _localId: Date.now() + Math.random(),
+     showError(msg) {
+    this.message = msg;
+    this.messageType = "error";
+    setTimeout(() => (this.message = ""), 5000);
+  },
+  showSuccess(msg) {
+    this.message = msg;
+    this.messageType = "success";
+    setTimeout(() => (this.message = ""), 5000);
+  },
+      facultyState(facultyId, units, department) {
+    const f = this.facultyList.find(f => f.id === facultyId);
+    if (!f) return { current: 0, max: 0, willExceed: false, mismatch: false, underload: false };
+    
+    const current = f.current_load || 0;
+    const max = f.max_load || 12;
+    const willExceed = current + (units || 0) > max;
+    const mismatch = department && f.department && f.department !== department;
+    const underload = current < max / 2;
+
+    return { current, max, willExceed, mismatch, underload };
+  },
+
+    // ------------------------
+    // AI suggestion helpers
+    // ------------------------
+    availableAssignments(subject) {
+      if (!subject.possible_assignments_original) return [];
+      return subject.possible_assignments_original.filter(opt => {
+        const slotKey = `${opt.faculty_id}|${opt.time_slot_label}`;
+        const roomKey = `${opt.room_id}|${opt.time_slot_label}`;
+        return !this.usedSlots[slotKey] && !this.usedRooms[roomKey];
       });
     },
-    removeEntry(groupKey, index) {
-      this.groupedSchedules[groupKey].splice(index, 1);
-    },
-   async saveSchedule(status = "pending") {
-    if (!this.groupedSchedules || Object.keys(this.groupedSchedules).length === 0) {
-      this.showError("No schedule to save. Generate a schedule first.");
-      return;
-    }
 
-    if (!this.academicYear) {
-      this.showError("Please provide Academic Year before saving.");
-      return;
-    }
+   refreshAISuggestions() {
+  // Replace each unassigned subject with a new object to trigger reactivity
+  this.unassigned = this.unassigned.map(u => {
+    const available = (u.possible_assignments_original || []).filter(opt => {
+      const slotKey = `${opt.faculty_id}|${opt.time_slot_label}`;
+      const roomKey = `${opt.room_id}|${opt.time_slot_label}`;
+      return !this.usedSlots[slotKey] && !this.usedRooms[roomKey];
+    });
 
-    this.loading = true;
-    this.show();
-
+    return {
+      ...u,
+      possible_assignments: available
+    };
+  });
+}
+,
+ 
+  async refreshFacultiesAndRooms() {
     try {
-      const scheduleItems = [];
-
-      // Include groupedSchedules
-      Object.values(this.groupedSchedules).forEach(entries => {
-        entries.forEach(e => {
-          scheduleItems.push({
-            faculty: e.faculty || e._selectedFaculty || "Unknown",
-            subject: e.subject || e.subject_title || "Untitled",
-            time: e.time || null,
-            classroom: e.classroom || null,
-            course_code: e.courseCode || e.course_code || "",
-            course_section: e.courseSection || e.course_section || "",
-            units: Number(e.units) || 0,
-            academicYear: this.academicYear,
-            semester: this.semester,
-            status,
-          });
-        });
-      });
-
-      // Include unassigned as pending too
-      this.unassigned.forEach(u => {
-        scheduleItems.push({
-          faculty: null,
-          subject: u.subject || u.subject_title || "Untitled",
-          time: u.time || null,
-          classroom: u.classroom || null,
-          course_code: u.courseCode || u.course_code || "",
-          course_section: u.courseSection || u.course_section || "",
-          units: Number(u.units) || 0,
-          academicYear: this.academicYear,
-          semester: this.semester,
-          status,
-          unassigned: true
-        });
-      });
-
-      const payload = { schedule: scheduleItems };
-
-      const res = await fetch("/api/save-schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
+      // You might want to fetch or update the faculty and room data
+      // For example, fetching fresh faculty/room data from the backend:
+      const res = await fetch('/api/faculties-rooms'); // Adjust this API endpoint as needed
       const result = await res.json();
-      if (!result.success) {
-        this.showError(result.message || "Failed to save schedule.");
-        return;
+      
+      if (result && result.faculties && result.rooms) {
+        this.facultyList = result.faculties;
+        this.roomList = result.rooms;
+        this.showSuccess('Faculties and rooms refreshed!');
+      } else {
+        this.showError('Failed to refresh faculties and rooms.');
       }
-
-      this.showSuccess(result.message || "Schedule saved successfully!");
     } catch (err) {
       console.error(err);
-      this.showError("An error occurred while saving schedule.");
-    } finally {
-      this.hide();
-      this.loading = false;
+      this.showError('Error refreshing faculties and rooms.');
     }
   },
-    // 🧩 UPDATED: send semester_id instead of semester text
-    async generateSchedule() {
-      
 
-      if (!this.academicYear) {
-        this.showError("Please provide Academic Year before generating.");
+assignFromSuggestion(subject, option) {
+  console.log('Assigning subject:', subject);
+
+  const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
+  const roomKey = `${option.room_id}|${option.time_slot_label}`;
+
+  if (this.usedSlots[slotKey] || this.usedRooms[roomKey]) {
+    this.showError("This suggestion conflicts with an existing schedule.");
+    return;
+  }
+
+  const facultyName = option.faculty_name || "Unknown";
+  if (!this.groupedSchedules[facultyName]) this.groupedSchedules[facultyName] = [];
+
+  // Verify the values in the subject object
+  const courseCode = subject.course_code || subject.courseCode || "-"; // fallback to "-" if not available
+  const courseSection = subject.course_section || "-"; // fallback to "-" if not available
+
+  console.log('Course Code:', courseCode);
+  console.log('Course Section:', courseSection);
+
+  this.groupedSchedules[facultyName].push({
+    subject: subject.subject_display || subject.subject_title || subject.subject,
+    time: option.time_slot_label,
+    classroom: option.room_name,
+    courseCode: courseCode, // properly assigned courseCode
+    courseSection: courseSection, // properly assigned courseSection
+    units: subject.units || 0,
+    faculty: facultyName,
+    subject_id: subject.subject_id,
+    _localId: subject._localId,
+    _assignedManually: true
+  });
+
+  this.usedSlots[slotKey] = true;
+  this.usedRooms[roomKey] = true;
+
+  const f = this.findFacultyById(option.faculty_id);
+  if (f) f.current_load = (f.current_load || 0) + (subject.units || 0);
+
+  // Remove from unassigned
+  this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
+
+  this.undoStack.push({ type: "manual_assign", facultyName, subject, option });
+  this.showSuccess(`Assigned "${subject.subject_display}" to ${facultyName} (manual/forced)`);
+
+  this.refreshAISuggestions();
+}
+,
+
+    undoLastAssignment() {
+      if (this.undoStack.length === 0) {
+        this.showError("No assignments to undo.");
         return;
       }
-      this.groupedSchedules = {}; // clear old schedule
-      this.unassigned = [];
-      this.summary = null;
-      this.conflicts = [];
-      const semesterMap = {
-        "1st Semester": 1,
-        "2nd Semester": 2,
-      };
-      const semester_id = semesterMap[this.semester] || 1;
 
-      this.loading = true;
-      this.show();
-      try {
+      const last = this.undoStack.pop();
+      if (last.type !== "manual_assign") return;
 
-        const res = await fetch("/api/generate-schedule", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-        academicYear: this.academicYear,
-        semester: this.semester,  // <- send the string directly
-      }),
+      const { facultyName, subject, option } = last;
+      const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
+      const roomKey = `${option.room_id}|${option.time_slot_label}`;
 
-        });
-        console.log("Sending request with semester_id:", semester_id, "academicYear:", this.academicYear);
-        
-        const result = await res.json();
-        console.log("API response schedule:", result.schedule);
-        if (!result || !result.success) {
-          this.showError(result?.message || "Failed to generate schedule.");
-          return;
+      const entries = this.groupedSchedules[facultyName] || [];
+      const idx = entries.findIndex((e) => e._localId === subject._localId);
+      if (idx !== -1) entries.splice(idx, 1);
+
+      delete this.usedSlots[slotKey];
+      delete this.usedRooms[roomKey];
+
+      const fobj = this.findFacultyById(option.faculty_id);
+      if (fobj) fobj.current_load = Math.max(0, (fobj.current_load || 0) - (subject.units || 0));
+
+      this.unassigned.push(subject);
+
+      this.refreshAISuggestions();
+      this.showSuccess(`Undid assignment of "${subject.subject_display}"`);
+    },
+
+    undoAllAssignments() {
+      if (this.undoStack.length === 0) {
+        this.showError("No assignments to undo.");
+        return;
+      }
+
+      const lastStack = [...this.undoStack];
+      this.undoStack = [];
+
+      lastStack.forEach((entry) => {
+        if (entry.type === "manual_assign") {
+          const { facultyName, subject, option } = entry;
+          const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
+          const roomKey = `${option.room_id}|${option.time_slot_label}`;
+
+          const entries = this.groupedSchedules[facultyName] || [];
+          const idx = entries.findIndex((e) => e._localId === subject._localId);
+          if (idx !== -1) entries.splice(idx, 1);
+
+          delete this.usedSlots[slotKey];
+          delete this.usedRooms[roomKey];
+
+          this.unassigned.push(subject);
+
+          const fobj = this.findFacultyById(option.faculty_id);
+          if (fobj) fobj.current_load = Math.max(0, (fobj.current_load || 0) - (subject.units || 0));
         }
+      });
 
-        const grouped = {};
-        const sched = Array.isArray(result.schedule) ? result.schedule : [];
+      this.refreshAISuggestions();
+      this.showSuccess("All manual assignments undone.");
+    },
+   async generateSchedule() {
+  if (!this.academicYear) {
+    this.showError("Please provide Academic Year before generating.");
+    return;
+  }
 
-        sched.forEach((s, idx) => {
-          const faculty =
-            (s.faculty || s.faculty_name || "Unassigned")?.toString().trim() ||
-            "Unassigned";
-          const subject =
-            s.subject || s.subject_title || s.subject_name || "";
-          const time =
-            s.time ||
-            s.time_slot ||
-            (s.day && s.start && s.end ? `${s.day} ${s.start}-${s.end}` : "");
-          const classroom = s.room || s.classroom || s.room_name || "";
-          const courseCode =
-            s.course_section ||
-            s.course_section_name ||
-            s.course_section_code ||
-            s.course_code ||
-            s.course_name ||
-            s.section_code ||
-            s.section ||
-            s.course ||
-            "";
-          const units = Number(s.units ?? s.unit ?? 0);
+  this.groupedSchedules = {};
+  this.unassigned = [];
+  this.summary = null;
+  this.conflicts = [];
 
-          if (!grouped[faculty]) grouped[faculty] = [];
+  const semesterMap = {
+    "1st Semester": 1,
+    "2nd Semester": 2,
+  };
+  const semester_id = semesterMap[this.semester] || 1;
 
-          grouped[faculty].push({
-          subject: s.subject_title,
-          time: s.time_slot,
-          classroom: s.room_name,
-          courseCode: s.course_code,
-          courseSection: s.course_section,
-          units: s.units,
-          faculty: s.faculty_name,
-          subject_id: s.subject_id ?? s.id ?? null,
-          _localId: `${Date.now()}-${idx}-${Math.random()}`,
-        });
+  this.loading = true;
+  this.show();
 
+  try {
+    const res = await fetch("/api/generate-schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        academicYear: this.academicYear,
+        semester: this.semester,
+      }),
+    });
 
-        });
+    const result = await res.json();
+    if (!result || !result.success) {
+      this.showError(result?.message || "Failed to generate schedule.");
+      return;
+    }
 
-       this.unassigned = Array.isArray(result.unassigned)
-  ? result.unassigned.map((u, idx) => ({
+    const grouped = {};
+    const sched = Array.isArray(result.schedule) ? result.schedule : [];
+    const curriculumSubjects = result.curriculum_subjects || [];  // Include curriculum_subjects in the API response
+
+    sched.forEach((s, idx) => {
+      const faculty = (s.faculty || s.faculty_name || "Unassigned").toString().trim();
+      if (!grouped[faculty]) grouped[faculty] = [];
+
+      const courseSection = this.getCourseSection(s.course_id, curriculumSubjects);  // Get course section from the curriculum subjects
+
+      grouped[faculty].push({
+        subject: s.subject_title || s.subject || 'Untitled',
+        time: s.time_slot || "",
+        classroom: s.room_name || "",
+        courseCode: s.course_code || "",
+        courseSection: courseSection,  // Use the fetched course section
+        units: s.units || 0,
+        faculty: s.faculty_name || faculty,
+        subject_id: s.subject_id ?? s.id ?? null,
+        _localId: `${Date.now()}-${idx}-${Math.random()}`,
+      });
+    });
+
+    this.unassigned = result.unassigned.map((u, idx) => ({
       ...u,
-      _selectedFaculty: "",
-      _selectedRoom: "",
-      _localId: `${Date.now()}-${idx}-${Math.random()}`, // unique id
-    }))
-  : [];
+      possible_assignments_original: u.possible_assignments || [],
+      possible_assignments: u.possible_assignments || [],
+      subject_display: `${u.course_code ? u.course_code + " - " : ""}${u.subject_title || u.subject || "Untitled"}`,
+      _localId: `${Date.now()}-${idx}-${Math.random()}`,
+    }));
 
-        this.summary = result.summary || null;
-        this.conflicts = result.conflicts || result.conflict_list || []; // 🆕
+    this.groupedSchedules = grouped;
+    this.sidebarOpen = true;
 
-        this.groupedSchedules = Object.keys(grouped).length ? grouped : {};
-        this.sidebarOpen = true;
+    this.showSuccess(result.message || "Schedule generated successfully!");
+  } catch (err) {
+    console.error(err);
+    this.showError("Could not generate schedule.");
+  } finally {
+    this.hide();
+    this.loading = false;
+  }
+}
 
-        await this.refreshFacultiesAndRooms();
-
-        this.showSuccess(result.message || "Schedule generated successfully!");
-      } catch (err) {
-        console.error(err);
-        this.showError("Could not generate schedule.");
-      } finally {
-        this.hide();
-        this.loading = false;
-      }
-    },
-
-    scrollToConflict(conflict) {
-      const targetId =
-        conflict.subject_a_id ||
-        conflict.subject_a ||
-        conflict.subject_b_id ||
-        conflict.subject_b;
-      if (!targetId) return;
-      const el = document.querySelector(`#row-${targetId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.style.backgroundColor = "#ffcccc";
-        setTimeout(() => (el.style.backgroundColor = ""), 2000);
-      }
-    },
-
-    async refreshFacultiesAndRooms() {
-      try {
-        const [fRes, rRes] = await Promise.all([
-          fetch("/api/professors").then((r) => r.json()).catch(() => ({ items: [] })),
-          fetch("/api/rooms").then((r) => r.json()).catch(() => ({ items: [] })),
-        ]);
-
-        this.facultyList = Array.isArray(fRes)
-          ? fRes
-          : fRes.items || fRes.faculties || [];
-        this.roomList = Array.isArray(rRes)
-          ? rRes
-          : rRes.items || rRes.rooms || [];
-      } catch (err) {
-        console.warn("Could not refresh faculties/rooms:", err);
-      }
-    },
   },
 };
+
 </script>
 
 
@@ -1112,5 +1087,18 @@ export default {
 
 .overload-btn {
   background-color: #e74c3c;
+}.faculty-item.mismatch {
+  background-color: rgba(255, 0, 0, 0.1);
 }
+
+.faculty-item.underload {
+  background-color: rgba(255, 255, 0, 0.1);
+}
+
+.faculty-item .state-hint {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
 </style>

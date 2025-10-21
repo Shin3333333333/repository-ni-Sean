@@ -10,6 +10,8 @@ class ScheduleController extends Controller
     public function generateSchedule(Request $request)
     {
         try {
+            ini_set('max_execution_time', 300); // 5 minutes
+            ini_set('memory_limit', '512M'); 
             $pythonScriptPath = base_path('ai/newtry.py');
             Log::info('Attempting to run Python script: ' . $pythonScriptPath);
 
@@ -49,7 +51,14 @@ class ScheduleController extends Controller
 
             // Run the Python script
             $output = shell_exec($command);
-
+            if (strpos($output, '<!DOCTYPE html>') !== false) {
+    Log::error('HTML output detected — probably a timeout or error page.');
+    return response()->json([
+        'success' => false,
+        'message' => 'Internal server error: HTML output detected (check Laravel logs).',
+        'schedule' => []
+    ], 500);
+}
             if ($output === null || trim($output) === '') {
                 Log::error('Python script execution failed or returned empty output. Check: ' . $stderrLog);
                 return response()->json([
