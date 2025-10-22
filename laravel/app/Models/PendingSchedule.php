@@ -22,6 +22,11 @@ class PendingSchedule extends Model
     'status',
     'user_id',
     'batch_id',
+    'payload',
 ];
+
+    protected $casts = [
+        'payload' => 'array',
+    ];
 
 }

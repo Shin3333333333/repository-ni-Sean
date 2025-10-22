@@ -7,6 +7,7 @@ use App\Models\PendingSchedule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class PendingScheduleController extends Controller
 {
@@ -33,9 +34,27 @@ public function show($batch_id)
     $pending = PendingSchedule::where('batch_id', $batch_id)
         ->where('status', 'pending')
         ->get();
-
     $grouped = [];
+    $unassigned = [];
+
     foreach ($pending as $p) {
+        // If this row has a payload (saved from CreatePanel unassigned), treat it as unassigned
+        if (!empty($p->payload) && is_array($p->payload) && !empty($p->payload['possible_assignments'])) {
+            $unassigned[] = [
+                'id' => $p->id,
+                'faculty' => $p->faculty,
+                'subject' => $p->subject,
+                'time' => $p->time,
+                'classroom' => $p->classroom,
+                'course_code' => $p->course_code,
+                'course_section' => $p->course_section,
+                'units' => $p->units,
+                'payload' => $p->payload,
+                '_localId' => $p->id,
+            ];
+            continue;
+        }
+
         $faculty = $p->faculty ?? 'Unassigned';
         if (!isset($grouped[$faculty])) $grouped[$faculty] = [];
         $grouped[$faculty][] = [
@@ -51,7 +70,7 @@ public function show($batch_id)
         ];
     }
 
-    return response()->json(['pending' => $grouped]);
+    return response()->json(['grouped' => $grouped, 'unassigned' => $unassigned]);
 }
 public function destroy($batch_id)
 {
@@ -98,61 +117,94 @@ public function finalize($batch_id)
     if (!$data || !is_array($data)) {
         return response()->json(['success' => false, 'message' => 'Invalid data'], 400);
     }
-
     // ✅ Generate unique batch ID once per save
     $batchId = Str::uuid();
 
-    foreach ($data as $item) {
-     PendingSchedule::create([
-        'faculty' => $item['faculty'] ?? 'Unknown',
-        'subject' => $item['subject'] ?? 'Untitled',
-        'time' => $item['time'] ?? null,
-        'classroom' => $item['classroom'] ?? null,
-        'course_code' => $item['course_code'] ?? null,
-        'course_section' => $item['course_section'] ?? null,
-        'units' => $item['units'] ?? 0,
-        'academicYear' => $item['academicYear'] ?? 'Unknown',
-        'semester' => $item['semester'] ?? '1st Semester',
-        'status' => $item['status'] ?? 'pending',
-        'user_id' => auth()->id(),
-        'batch_id' => $batchId,
-    ]);
+    DB::beginTransaction();
+    try {
+        foreach ($data as $item) {
+            $createData = [
+                'faculty' => $item['faculty'] ?? 'Unknown',
+                'subject' => $item['subject'] ?? 'Untitled',
+                'time' => $item['time'] ?? null,
+                'classroom' => $item['classroom'] ?? null,
+                'course_code' => $item['course_code'] ?? null,
+                'course_section' => $item['course_section'] ?? null,
+                'units' => $item['units'] ?? 0,
+                'academicYear' => $item['academicYear'] ?? 'Unknown',
+                'semester' => $item['semester'] ?? '1st Semester',
+                'status' => $item['status'] ?? 'pending',
+                'user_id' => auth()->id(),
+                'batch_id' => $batchId,
+            ];
 
+            // only write payload if the DB column exists to avoid SQL errors
+            if (isset($item['payload']) && Schema::hasColumn('pending_schedules', 'payload')) {
+                $createData['payload'] = $item['payload'];
+            }
 
+            PendingSchedule::create($createData);
+        }
+
+        DB::commit();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Schedule saved as pending successfully!',
+            'batch_id' => $batchId
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        // return JSON error to avoid HTML 500 page and help debugging
+        return response()->json([
+            'success' => false,
+            'message' => 'Server error while saving pending schedule',
+            'error' => $e->getMessage(),
+        ], 500);
     }
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Schedule saved as pending successfully!',
-        'batch_id' => $batchId
-    ]);
     }
 public function updateBatch(Request $request, $batchId)
 {
     $schedules = $request->input('schedules', []);
 
-    foreach ($schedules as $sched) {
-        if (isset($sched['id'])) {
-           DB::table('pending_schedules')
-            ->where('id', $sched['id'])
-            ->where('batch_id', $batchId)
-            ->update([
-                'faculty' => $sched['faculty'] ?? DB::raw('faculty'),
-                'subject' => $sched['subject'] ?? DB::raw('subject'),
-                'time' => $sched['time'] ?? DB::raw('time'),
-                'classroom' => $sched['classroom'] ?? DB::raw('classroom'),
-                'course_code' => $sched['course_code'] ?? DB::raw('course_code'),
-                'course_section' => $sched['course_section'] ?? DB::raw('course_section'),
-                'units' => $sched['units'] ?? DB::raw('units'),
-                'academicYear' => $sched['academicYear'] ?? DB::raw('academicYear'),
-                'semester' => $sched['semester'] ?? DB::raw('semester'),
-                'updated_at' => now(),
-            ]);
+    DB::beginTransaction();
+    try {
+        foreach ($schedules as $sched) {
+            if (isset($sched['id'])) {
+                $updateData = [
+                    'faculty' => $sched['faculty'] ?? DB::raw('faculty'),
+                    'subject' => $sched['subject'] ?? DB::raw('subject'),
+                    'time' => $sched['time'] ?? DB::raw('time'),
+                    'classroom' => $sched['classroom'] ?? DB::raw('classroom'),
+                    'course_code' => $sched['course_code'] ?? DB::raw('course_code'),
+                    'course_section' => $sched['course_section'] ?? DB::raw('course_section'),
+                    'units' => $sched['units'] ?? DB::raw('units'),
+                    'academicYear' => $sched['academicYear'] ?? DB::raw('academicYear'),
+                    'semester' => $sched['semester'] ?? DB::raw('semester'),
+                    'updated_at' => now(),
+                ];
 
+                // If frontend included possible_assignments or payload, persist it to payload column if present
+                if (isset($sched['possible_assignments']) && Schema::hasColumn('pending_schedules', 'payload')) {
+                    $updateData['payload'] = json_encode(['possible_assignments' => $sched['possible_assignments']]);
+                } elseif (isset($sched['payload']) && Schema::hasColumn('pending_schedules', 'payload')) {
+                    $updateData['payload'] = is_array($sched['payload']) ? json_encode($sched['payload']) : $sched['payload'];
+                }
+
+                DB::table('pending_schedules')
+                    ->where('id', $sched['id'])
+                    ->where('batch_id', $batchId)
+                    ->update($updateData);
+            }
         }
+
+        DB::commit();
+        return response()->json(['success' => true]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json(['success' => false, 'message' => 'Server error while updating batch', 'error' => $e->getMessage()], 500);
     }
 
-    return response()->json(['success' => true]);
 }
 
 

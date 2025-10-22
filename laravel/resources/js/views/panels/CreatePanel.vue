@@ -24,63 +24,34 @@
           <option value="2nd Semester">2nd Semester</option>
         </select>
 
-        <!-- Faculty Filter -->
-        <select
-          v-if="uniqueFaculties.length > 0"
-          v-model="selectedFaculty"
-          class="filter-select"
-        >
+        <select v-if="uniqueFaculties.length > 0" v-model="selectedFaculty" class="filter-select">
           <option value="All">All Faculties</option>
-          <option v-for="faculty in uniqueFaculties" :key="faculty" :value="faculty">
-            {{ faculty }}
-          </option>
+          <option v-for="faculty in uniqueFaculties" :key="faculty" :value="faculty">{{ faculty }}</option>
         </select>
 
-        <!-- Course Filter -->
-        <select
-          v-if="uniqueCourses.length > 0"
-          v-model="selectedCourse"
-          class="filter-select"
-        >
+        <select v-if="uniqueCourses.length > 0" v-model="selectedCourse" class="filter-select">
           <option value="All">All Courses</option>
-          <option v-for="course in uniqueCourses" :key="course" :value="course">
-            {{ course }}
-          </option>
+          <option v-for="course in uniqueCourses" :key="course" :value="course">{{ course }}</option>
         </select>
       </div>
 
       <!-- Right Controls -->
       <div class="col-4 right-controls">
-        <button
-          v-if="Object.keys(groupedSchedules).length > 0"
-          @click="toggleEditMode"
-          class="edit-btn"
-        >
+        <button v-if="Object.keys(groupedSchedules).length > 0" @click="toggleEditMode" class="edit-btn">
           {{ editMode ? 'Finish Editing' : 'Edit' }}
         </button>
 
-        <button
-          v-if="Object.keys(groupedSchedules).length > 0"
-          @click="saveSchedule('pending')"
-          class="save-btn"
-        >
+        <button v-if="Object.keys(groupedSchedules).length > 0" @click="saveSchedule('pending')" class="save-btn">
           Save as Pending
         </button>
 
-        <button
-          v-if="Object.keys(groupedSchedules).length > 0"
-          @click="saveSchedule('finalized')"
-          class="save-btn"
-        >
+        <button v-if="Object.keys(groupedSchedules).length > 0" @click="saveSchedule('finalized')" class="save-btn">
           Finalize
         </button>
 
         <button @click="exitSchedule" class="exit-btn">Exit</button>
 
-        <!-- Sidebar toggle -->
-        <button @click="sidebarOpen = !sidebarOpen" class="info-btn">
-          {{ sidebarOpen ? 'Hide Details' : 'Show Details' }}
-        </button>
+        <button @click="sidebarOpen = !sidebarOpen" class="info-btn">{{ sidebarOpen ? 'Hide Details' : 'Show Details' }}</button>
       </div>
     </div>
 
@@ -91,11 +62,7 @@
       <!-- Schedule Table -->
       <div class="schedules-area" :class="{ 'sidebar-open': sidebarOpen }">
         <div v-if="Object.keys(groupedSchedules).length > 0">
-          <div
-            v-for="(entries, groupKey) in filteredSchedules"
-            :key="groupKey"
-            class="faculty-section"
-          >
+          <div v-for="(entries, groupKey) in filteredSchedules" :key="groupKey" class="faculty-section">
             <h3>{{ groupKey }}</h3>
             <table border="1" cellpadding="5" cellspacing="0" class="create-table">
               <thead>
@@ -115,9 +82,10 @@
                   v-for="(entry, index) in entries"
                   :key="entry._localId || entry.subject + '-' + index"
                   :id="`row-${entry.subject_id || entry._localId}`"
-                > 
+                >
                   <td v-if="editMode"><input v-model="entry.courseCode" /></td>
                   <td v-else>{{ entry.courseCode || '—' }}</td>
+
                   <td v-if="editMode"><input v-model="entry.subject" /></td>
                   <td v-else>{{ entry.subject || '—' }}</td>
 
@@ -135,20 +103,14 @@
 
                   <td v-if="showFacultyColumn">{{ entry.faculty || groupKey }}</td>
 
-                  <td v-if="editMode">
-                    <button @click="removeEntry(groupKey, index)">Remove</button>
-                  </td>
+                  <td v-if="editMode"><button @click="removeEntry(groupKey, index)">Remove</button></td>
                 </tr>
               </tbody>
             </table>
 
-            <div class="total-units">
-              Total Load Units: {{ totalUnitsFiltered[groupKey] || 0 }}
-            </div>
+            <div class="total-units">Total Load Units: {{ totalUnitsFiltered[groupKey] || 0 }}</div>
 
-            <button v-if="editMode" @click="addEntry(groupKey)" class="add-btn small">
-              + Add Row
-            </button>
+            <button v-if="editMode" @click="addEntry(groupKey)" class="add-btn small">+ Add Row</button>
           </div>
         </div>
 
@@ -164,88 +126,70 @@
           <button class="collapse" @click="sidebarOpen = false">×</button>
         </div>
 
-       <button @click="undoLastAssignment" class="undo-btn">Undo Last</button>
-      <button @click="undoAllAssignments" class="undo-all-btn">Undo All</button>
+        <button @click="undoLastAssignment" class="undo-btn">Undo Last</button>
+        <button @click="undoAllAssignments" class="undo-all-btn">Undo All</button>
 
+        <!-- Unassigned Subjects -->
+        <div class="sidebar-section">
+          <h5>Unassigned Subjects Overview</h5>
 
-        <!-- 🎯 Focused Unassigned Section -->
-<!-- 🎯 Unassigned Subjects Section -->
-<div class="sidebar-section">
-  <h5>Unassigned Subjects Overview</h5>
+          <div class="summary-box">
+            <p><strong>Total Subjects:</strong> {{ summary?.total_curriculum_subjects ?? (assignedCount + unassigned.length) }}</p>
+            <p><strong>Assigned by AI:</strong> {{ summary?.total_assigned ?? assignedCount }}</p>
+            <p><strong>Unassigned:</strong> {{ summary?.total_unassigned ?? unassigned.length }}</p>
+          </div>
 
-  <div class="summary-box">
-     <p><strong>Total Subjects:</strong> {{ summary?.total_curriculum_subjects ?? (assignedCount + unassigned.length) }}</p>
-    <p><strong>Assigned by AI:</strong> {{ summary?.total_assigned ?? assignedCount }}</p>
-    <p><strong>Unassigned:</strong> {{ summary?.total_unassigned ?? unassigned.length }}</p>
-  </div>
+          <div v-if="unassigned.length">
+            <div v-for="(u, i) in unassigned" :key="u.subject_id || i" class="unassigned-item">
+              <div class="ua-top">
+                <div class="ua-title">{{ u.course_code || u.subject_title || u.subject || 'Untitled Subject' }}</div>
+                <div class="ua-meta">Course: {{ u.course_section || '—' }} — Units: {{ u.units ?? 0 }}</div>
+              </div>
 
-  <div v-if="unassigned.length">
-    <div
-      v-for="(u, i) in unassigned"
-      :key="u.subject_id || i"
-      class="unassigned-item"
-    >
-      <div class="ua-top">
-       <div class="ua-title">{{ u.course_code || u.subject_title || u.subject || 'Untitled Subject' }}</div>
+              <!-- AI Suggestions -->
+              <div class="ua-suggestions">
+                <p><strong>Possible Assignments (AI Suggestions):</strong></p>
+                <ul>
+                    <li
+                      v-for="pa in availableAssignments(u)"
+                      :key="`${u.subject_id}-${pa.faculty_id}-${pa.time_slot_label}`"
+                      class="faculty-item"
+                      :class="pa.dynamic_class || ''"
+                    >
+                    <div class="pa-content">
+                      <div class="pa-top">
+                        👩‍🏫 {{ pa.faculty_name || 'Unknown Faculty' }}
+                        <small>({{ pa.faculty_department || 'No Dept' }}, Load: {{ pa.faculty_current_load }}/{{ pa.faculty_max_load }})</small>
+                        <div class="pa-badges">
+                          <span v-if="pa.deptMatch" class="badge badge-dept" title="Department matches">Dept</span>
+                          <span v-if="pa.willExceed" class="badge badge-overload" title="Assigning this will exceed faculty's max load">Overload</span>
+                          <span v-if="pa.conflictsExistingSlot" class="badge badge-conflict" title="This time overlaps an existing assignment">Time conflict</span>
+                          <span v-if="pa.conflictsExistingRoom" class="badge badge-conflict" title="Room is already in use at this time">Room conflict</span>
+                        </div>
+                      </div>
 
-        <div class="ua-meta">
-          Course: {{ u.course_code || u.course || '—' }} — Units: {{ u.units ?? 0 }}
+                      <div class="pa-bottom">
+                        <small>🕒 {{ pa.time_slot_label }} | 🏫 {{ pa.room_name }}</small>
+                        <div class="pa-actions">
+                          <button v-if="!pa.willExceed" @click.stop="assignToFaculty(u, pa)" class="assign-btn">Assign</button>
+                          <button v-else @click.stop="confirmOverloadAssign(u, pa)" class="assign-btn overload-btn">⚠️ Assign</button>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+
+                  <li v-if="!(u.possible_assignments || []).length" class="no-suggestion">No suggested assignments from AI.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div v-else>
+            <p>✅ All subjects have been assigned successfully.</p>
+          </div>
         </div>
-      </div>
 
-      <!-- 🧠 Show unassignment reason -->
-       <!-- <div class="ua-reason" v-if="findUnassignedReason(u.subject_id)">
-    ⚠️ {{ findUnassignedReason(u.subject_id).description }}
-  </div> -->
-
-
-<div class="ua-suggestions">
-  <p><strong>Possible Assignments (AI Suggestions):</strong></p>
-  <ul>
-    <li v-for="pa in availableAssignments(u)" :key="`${u.subject_id}-${pa.faculty_id}`" class="faculty-item">
-  <template v-if="facultyStateResult = facultyState(pa.faculty_id, u.units, u.department)">
-    👩‍🏫 {{ pa.faculty_name || 'Unknown Faculty' }}
-    ({{ getFacultyDepartment(pa.faculty_id) || 'No Dept' }},
-    Load: {{ facultyStateResult.current }}/{{ facultyStateResult.max }})
-
-    <button
-      v-if="!facultyStateResult.willExceed"
-      @click.stop="assignToFaculty(u, pa)"
-      class="assign-btn"
-    >Assign</button>
-
-    <button
-      v-else
-      @click.stop="confirmOverloadAssign(u, pa)"
-      class="assign-btn overload-btn"
-    >⚠️ Assign</button>
-
-    <div class="state-hint">
-      <small v-if="facultyStateResult.mismatch">🚫 Dept Mismatch</small>
-      <small v-else-if="facultyStateResult.willExceed">⚠️ Overload</small>
-      <small v-else-if="facultyStateResult.underload">🟡 Underload</small>
-      <small v-else>✅ Suitable</small>
-    </div>
-  </template>
-</li>
-
-
-    <li v-if="!(u.possible_assignments || []).length" class="no-suggestion">
-      No suggested assignments from AI.
-    </li>
-  </ul>
-</div>
-
-
-    </div>
-  </div>
-
-  <div v-else>
-    <p>✅ All subjects have been assigned successfully.</p>
-  </div>
-</div>
-
-        <!-- 🆕 Conflicts Overview -->
+        <!-- Conflicts -->
         <div class="sidebar-section">
           <h5>Conflicts Overview</h5>
           <div v-if="conflicts && conflicts.length">
@@ -267,6 +211,7 @@
     <LoadingModal />
   </div>
 </template>
+
 
 <script>
 import LoadingModal from "../../components/LoadingModal.vue";
@@ -295,10 +240,13 @@ export default {
       loading: false,
       usedSlots: {},
       usedRooms: {},
+  suggestionLimit: 3,
+  facultySuggestionLimit: 2,
       undoStack: [],
       currentLoadByFaculty: {},
       occupiedSlotsByFaculty: {},
       occupiedSlotsByRoom: {},
+      apiBase: '/api',
     };
   },
   setup() {
@@ -401,11 +349,51 @@ export default {
     },
   },
   methods: {
-  assignToFaculty(subject, option) {
-  const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
-  const roomKey = `${option.room_id}|${option.time_slot_label}`;
+    getFacultyColorClass(option, subject) {
+  const f = this.facultyList.find(f => f.id === option.faculty_id);
+  if (!f) return "bg-gray-200";
 
-  if (this.usedSlots[slotKey] || this.usedRooms[roomKey]) {
+  const current = f.current_load || 0;
+  const max = f.max_load || 12;
+  const dept = f.department?.toUpperCase() || "";
+  const subjDept = subject.course_code?.substring(0, 2)?.toUpperCase() || "";
+  const sameDept = dept === subjDept;
+  const overloaded = current >= max;
+  const underloaded = current < max / 2;
+
+  if (sameDept && !overloaded) return "bg-green-200"; // ✅ best
+  if (sameDept && overloaded) return "bg-yellow-200"; // ⚠️ same dept but full
+  if (!sameDept && underloaded) return "bg-orange-200"; // 🟡 mismatch but light
+  if (!sameDept && overloaded) return "bg-red-300"; // 🔴 bad match
+  return "bg-gray-100";
+}
+,
+    facultyStateClass(facultyId, units, department, subjectCode = "") {
+  const f = this.facultyList.find(f => f.id === facultyId);
+  if (!f) return { current: 0, max: 0, willExceed: false, mismatch: false, underload: false };
+
+  const current = f.current_load || 0;
+  const max = f.max_load || 12;
+  const willExceed = current + (units || 0) > max;
+
+  // 🔠 Derive department code from subjectCode or courseCode
+  const derivedDept = department || subjectCode.substring(0, 2).toUpperCase();
+
+  const mismatch =
+    f.department && derivedDept &&
+    !f.department.toUpperCase().includes(derivedDept.toUpperCase());
+
+  const underload = current < max / 2;
+
+  return { current, max, willExceed, mismatch, underload };
+},
+
+  assignToFaculty(subject, option) {
+  const normalized = this.normalizeSlotLabel(option.time_slot_label || "");
+  const slotKey = `${option.faculty_id}|${normalized}`;
+  const roomKey = `${option.room_id}|${normalized}`;
+
+  if (this.usedSlots[slotKey] || this.usedRooms[roomKey] || this.checkSlotConflict(option.faculty_id, option.time_slot_label) || this.checkRoomConflict(option.room_id, option.time_slot_label)) {
     this.showError("This assignment conflicts with an existing schedule.");
     return;
   }
@@ -416,8 +404,8 @@ export default {
   // Fallback values for courseCode and courseSection
   const courseCode = subject.subject_code || subject.subjectCode || "-";
   console.log(subject);  // Log the subject to verify if course_section is available
- 
-  const courseSection = subject.course_section ||  "-";
+
+  const courseSection = subject.course_section || "-";
 
   console.log(Object.keys(subject));  // This will list all available keys in the subject object
 
@@ -432,13 +420,16 @@ export default {
     courseSection: courseSection, // Use the course_section property of the subject
     units: subject.units || 0,
     faculty: facultyName,
+    faculty_id: option.faculty_id || null,
+    room_id: option.room_id || null,
     subject_id: subject.subject_id,
     _localId: subject._localId,
     _assignedManually: true
   });
 
-  this.usedSlots[slotKey] = true;
-  this.usedRooms[roomKey] = true;
+  // mark normalized keys
+  this.usedSlots[`${option.faculty_id}|${this.normalizeSlotLabel(option.time_slot_label)}`] = true;
+  this.usedRooms[`${option.room_id}|${this.normalizeSlotLabel(option.time_slot_label)}`] = true;
 
   const f = this.facultyList.find(fac => fac.id === option.faculty_id);
   if (f) f.current_load = (f.current_load || 0) + (subject.units || 0);
@@ -446,7 +437,20 @@ export default {
   // Remove from unassigned
   this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
 
-  this.undoStack.push({ type: "manual_assign", facultyName, subject, option });
+  // Remove conflicting options from other unassigned subjects and capture removals for undo
+  const removals = this.removeConflictingOptions(option, subject._localId);
+
+  // Deep clone the subject so the original possible assignments are preserved
+  const originalSubject = JSON.parse(JSON.stringify(subject));
+
+  this.undoStack.push({
+    type: "manual_assign",
+    facultyName,
+    subject: originalSubject, // store a clone, not the modified reference
+    option,
+    removedConflicts: removals,
+  });
+
   this.showSuccess(`Assigned "${subject.subject_display}" to ${facultyName} (manual/forced)`);
 
   this.refreshAISuggestions();
@@ -456,6 +460,96 @@ export default {
      getFacultyDepartment(facultyId) {
     const faculty = this.facultyList.find(f => f.id === facultyId);
     return faculty?.department || null;
+  },
+  findFacultyById(id) {
+    return this.facultyList.find(f => f.id === id) || null;
+  },
+  findFacultyByName(name) {
+    if (!name) return null;
+    return this.facultyList.find(f => (f.name || '').toString().trim() === name.toString().trim()) || null;
+  },
+  findRoomByName(name) {
+    if (!name) return null;
+    return (this.roomList || []).find(r => (r.name || '').toString().trim() === name.toString().trim()) || null;
+  },
+  // Parse slot label like 'Tue 06:00-09:00' -> { day: 'Tue', start: minutes, end: minutes }
+  parseSlotLabel(label) {
+    if (!label || typeof label !== 'string') return null;
+    try {
+      const s = label.replace(/–/g, '-').trim();
+      const m = s.match(/^([A-Za-z]+)\s+(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})$/);
+      if (!m) return null;
+      const day = m[1];
+      const sh = parseInt(m[2], 10); const sm = parseInt(m[3], 10);
+      const eh = parseInt(m[4], 10); const em = parseInt(m[5], 10);
+      return { day, start: sh * 60 + sm, end: eh * 60 + em };
+    } catch (e) {
+      return null;
+    }
+  },
+
+  // Return canonical label string used for keys: Day HH:MM-HH:MM
+  normalizeSlotLabel(label) {
+    const p = this.parseSlotLabel(label);
+    if (!p) return label || "";
+    const pad = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+    return `${p.day} ${pad(p.start)}-${pad(p.end)}`;
+  },
+
+  intervalsOverlap(aStart, aEnd, bStart, bEnd) {
+    if (aStart == null || aEnd == null || bStart == null || bEnd == null) return false;
+    return !(aEnd <= bStart || bEnd <= aStart);
+  },
+
+  // Check if two slot labels overlap (same day and time ranges intersect)
+  slotLabelsOverlap(aLabel, bLabel) {
+    const a = this.parseSlotLabel(aLabel);
+    const b = this.parseSlotLabel(bLabel);
+    if (!a || !b) return false;
+    if (a.day !== b.day) return false;
+    return this.intervalsOverlap(a.start, a.end, b.start, b.end);
+  },
+
+  // Check if faculty has any used slot that overlaps with given slotLabel
+  checkSlotConflict(facultyId, slotLabel) {
+    if (!facultyId || !slotLabel) return false;
+    // iterate keys in usedSlots which are of the form `${fid}|${label}`
+    for (const key in this.usedSlots) {
+      if (!this.usedSlots[key]) continue;
+      const parts = key.split('|');
+      if (parts.length < 2) continue;
+      const fid = parts[0];
+      const label = parts.slice(1).join('|');
+      if (String(fid) === String(facultyId)) {
+        if (this.slotLabelsOverlap(label, slotLabel)) return true;
+      }
+    }
+    return false;
+  },
+
+  // Check if a room has any used slot that overlaps with given slotLabel
+  checkRoomConflict(roomId, slotLabel) {
+    if (!roomId || !slotLabel) return false;
+    for (const key in this.usedRooms) {
+      if (!this.usedRooms[key]) continue;
+      const parts = key.split('|');
+      if (parts.length < 2) continue;
+      const rid = parts[0];
+      const label = parts.slice(1).join('|');
+      if (String(rid) === String(roomId)) {
+        if (this.slotLabelsOverlap(label, slotLabel)) return true;
+      }
+    }
+    return false;
+  },
+  confirmOverloadAssign(subject, option) {
+    // Simple browser confirm dialog; can be replaced with a nicer modal later
+    const faculty = option.faculty_name || 'Selected Faculty';
+    const msg = `Assigning to ${faculty} will exceed their load. Do you want to proceed?`;
+    if (window.confirm(msg)) {
+      // Use assignFromSuggestion so behavior is consistent
+      this.assignFromSuggestion(subject, option);
+    }
   },
      showError(msg) {
     this.message = msg;
@@ -484,31 +578,115 @@ export default {
     // AI suggestion helpers
     // ------------------------
     availableAssignments(subject) {
-      if (!subject.possible_assignments_original) return [];
-      return subject.possible_assignments_original.filter(opt => {
-        const slotKey = `${opt.faculty_id}|${opt.time_slot_label}`;
-        const roomKey = `${opt.room_id}|${opt.time_slot_label}`;
-        return !this.usedSlots[slotKey] && !this.usedRooms[roomKey];
-      });
+      // If refreshAISuggestions precomputed suggestions, return them
+      if (subject.possible_assignments) return subject.possible_assignments;
+      return [];
     },
 
-   refreshAISuggestions() {
-  // Replace each unassigned subject with a new object to trigger reactivity
-  this.unassigned = this.unassigned.map(u => {
-    const available = (u.possible_assignments_original || []).filter(opt => {
-      const slotKey = `${opt.faculty_id}|${opt.time_slot_label}`;
-      const roomKey = `${opt.room_id}|${opt.time_slot_label}`;
-      return !this.usedSlots[slotKey] && !this.usedRooms[roomKey];
-    });
 
-    return {
-      ...u,
-      possible_assignments: available
-    };
-  });
-}
-,
- 
+    refreshAISuggestions() {
+      // 1) For every unassigned subject compute candidate options with metadata and filter basic conflicts
+      const candidates = []; // flat list: { subjectLocalId, subjectRef, opt }
+
+      (this.unassigned || []).forEach(u => {
+        const units = u.units || 0;
+        const derivedDept = (u.department || u.subject_code || u.course_code || '').toString().substring(0,2).toUpperCase();
+        (u.possible_assignments_original || []).forEach(opt0 => {
+          // Instead of silently dropping candidates that conflict with already-assigned
+          // slots/rooms, include them but mark flags so they can be shown (deprioritized)
+          // in the UI. Actual assignment will still enforce conflicts.
+          const conflictsExistingSlot = this.checkSlotConflict(opt0.faculty_id, opt0.time_slot_label);
+          const conflictsExistingRoom = this.checkRoomConflict(opt0.room_id, opt0.time_slot_label);
+
+          const faculty = this.findFacultyById(opt0.faculty_id);
+          const faculty_current = faculty ? (faculty.current_load || 0) : 0;
+          const faculty_max = faculty ? (faculty.max_load || 12) : 12;
+          const willExceed = (faculty_current + (units || 0)) > faculty_max;
+          const facultyDept = faculty && faculty.department ? faculty.department.toString().substring(0,2).toUpperCase() : '';
+          const deptMatch = derivedDept && facultyDept && derivedDept === facultyDept;
+
+          const opt = {
+            ...opt0,
+            faculty_current_load: faculty_current,
+            faculty_max_load: faculty_max,
+            willExceed,
+            deptMatch,
+            conflictsExistingSlot,
+            conflictsExistingRoom,
+            dynamic_class: (deptMatch && !willExceed && !conflictsExistingSlot && !conflictsExistingRoom) ? 'suitable' : (deptMatch && willExceed) ? 'overload' : (!deptMatch && !willExceed) ? 'underload' : 'mismatch',
+          };
+
+          candidates.push({ subjectLocalId: u._localId, subjectRef: u, opt });
+        });
+      });
+
+      // 2) Group candidates by faculty and pick top N per faculty while avoiding time/room conflicts among picks
+      const byFaculty = {};
+      candidates.forEach(c => {
+        const fid = c.opt.faculty_id || 'null';
+        if (!byFaculty[fid]) byFaculty[fid] = [];
+        byFaculty[fid].push(c);
+      });
+
+      const selectedPerSubject = {};
+
+      Object.keys(byFaculty).forEach(fid => {
+        const list = byFaculty[fid];
+        // sort by deptMatch desc, conflictsExistingSlot/Room asc (prefer non-conflicting), willExceed asc, score desc
+        list.sort((a,b) => {
+          if ((a.opt.deptMatch ? 1 : 0) !== (b.opt.deptMatch ? 1 : 0)) return (a.opt.deptMatch ? -1 : 1);
+          if ((a.opt.conflictsExistingSlot ? 1 : 0) !== (b.opt.conflictsExistingSlot ? 1 : 0)) return (a.opt.conflictsExistingSlot ? 1 : -1);
+          if ((a.opt.conflictsExistingRoom ? 1 : 0) !== (b.opt.conflictsExistingRoom ? 1 : 0)) return (a.opt.conflictsExistingRoom ? 1 : -1);
+          if ((a.opt.willExceed ? 1 : 0) !== (b.opt.willExceed ? 1 : 0)) return (a.opt.willExceed ? 1 : -1);
+          return (b.opt.score || 0) - (a.opt.score || 0);
+        });
+
+        // local trackers to prevent time/room overlap for this faculty
+        const facultyUsedSlots = new Set();
+        const facultyUsedRooms = new Set();
+        let count = 0;
+        for (const entry of list) {
+          if (count >= (this.facultySuggestionLimit || 2)) break;
+          const opt = entry.opt;
+          const subjId = entry.subjectLocalId;
+          // do not drop candidates that conflict with existing schedule here; they were
+          // deprioritized in the sort. Still avoid local faculty pick overlaps below.
+          // check local faculty picks
+          let conflictLocal = false;
+          for (const sKey of facultyUsedSlots) {
+            if (this.slotLabelsOverlap(sKey, opt.time_slot_label)) { conflictLocal = true; break; }
+          }
+          if (conflictLocal) continue;
+          for (const rKey of facultyUsedRooms) {
+            if (rKey === String(opt.room_id)) { conflictLocal = true; break; }
+          }
+          if (conflictLocal) continue;
+
+          // select this candidate
+          facultyUsedSlots.add(opt.time_slot_label);
+          facultyUsedRooms.add(String(opt.room_id));
+          count += 1;
+
+          if (!selectedPerSubject[subjId]) selectedPerSubject[subjId] = [];
+          selectedPerSubject[subjId].push(opt);
+        }
+      });
+
+      // 3) assign selected candidates to each subject's possible_assignments (sorted best-first)
+      this.unassigned = (this.unassigned || []).map(u => {
+        const picks = selectedPerSubject[u._localId] || [];
+        // sort picks for subject by deptMatch desc, willExceed asc, score desc
+        picks.sort((a,b) => {
+          if ((a.deptMatch ? 1 : 0) !== (b.deptMatch ? 1 : 0)) return (a.deptMatch ? -1 : 1);
+          if ((a.willExceed ? 1 : 0) !== (b.willExceed ? 1 : 0)) return (a.willExceed ? 1 : -1);
+          return (b.score || 0) - (a.score || 0);
+        });
+        return { ...u, possible_assignments: picks };
+      });
+
+      this.$forceUpdate();
+    },
+
   async refreshFacultiesAndRooms() {
     try {
       // You might want to fetch or update the faculty and room data
@@ -532,10 +710,11 @@ export default {
 assignFromSuggestion(subject, option) {
   console.log('Assigning subject:', subject);
 
-  const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
-  const roomKey = `${option.room_id}|${option.time_slot_label}`;
+  const normalized = this.normalizeSlotLabel(option.time_slot_label || "");
+  const slotKey = `${option.faculty_id}|${normalized}`;
+  const roomKey = `${option.room_id}|${normalized}`;
 
-  if (this.usedSlots[slotKey] || this.usedRooms[roomKey]) {
+  if (this.usedSlots[slotKey] || this.usedRooms[roomKey] || this.checkSlotConflict(option.faculty_id, option.time_slot_label) || this.checkRoomConflict(option.room_id, option.time_slot_label)) {
     this.showError("This suggestion conflicts with an existing schedule.");
     return;
   }
@@ -544,7 +723,7 @@ assignFromSuggestion(subject, option) {
   if (!this.groupedSchedules[facultyName]) this.groupedSchedules[facultyName] = [];
 
   // Verify the values in the subject object
-  const courseCode = subject.course_code || subject.courseCode || "-"; // fallback to "-" if not available
+  const courseCode = subject.course_code || subject.courseCode || subject.subject_code || subject.subjectCode || "-"; // fallback to "-" if not available
   const courseSection = subject.course_section || "-"; // fallback to "-" if not available
 
   console.log('Course Code:', courseCode);
@@ -558,13 +737,15 @@ assignFromSuggestion(subject, option) {
     courseSection: courseSection, // properly assigned courseSection
     units: subject.units || 0,
     faculty: facultyName,
+    faculty_id: option.faculty_id || null,
+    room_id: option.room_id || null,
     subject_id: subject.subject_id,
     _localId: subject._localId,
     _assignedManually: true
   });
 
-  this.usedSlots[slotKey] = true;
-  this.usedRooms[roomKey] = true;
+  this.usedSlots[`${option.faculty_id}|${this.normalizeSlotLabel(option.time_slot_label)}`] = true;
+  this.usedRooms[`${option.room_id}|${this.normalizeSlotLabel(option.time_slot_label)}`] = true;
 
   const f = this.findFacultyById(option.faculty_id);
   if (f) f.current_load = (f.current_load || 0) + (subject.units || 0);
@@ -572,29 +753,127 @@ assignFromSuggestion(subject, option) {
   // Remove from unassigned
   this.unassigned = this.unassigned.filter(u => u._localId !== subject._localId);
 
-  this.undoStack.push({ type: "manual_assign", facultyName, subject, option });
+  // Remove conflicting options from other unassigned subjects and capture removals for undo
+  const removals = this.removeConflictingOptions(option, subject._localId);
+
+  // Deep clone the subject so the original possible assignments are preserved
+  const originalSubject = JSON.parse(JSON.stringify(subject));
+
+  this.undoStack.push({
+    type: "manual_assign",
+    facultyName,
+    subject: originalSubject, // store a clone, not the modified reference
+    option,
+    removedConflicts: removals,
+  });
+
   this.showSuccess(`Assigned "${subject.subject_display}" to ${facultyName} (manual/forced)`);
 
   this.refreshAISuggestions();
 }
 ,
 
-    undoLastAssignment() {
-      if (this.undoStack.length === 0) {
-        this.showError("No assignments to undo.");
-        return;
-      }
+    // Remove conflicting possible assignments on other unassigned subjects
+    // Returns an array of removals for undo: [{ _localId, removed: [opts] }, ...]
+    removeConflictingOptions(option, skipLocalId = null) {
+      const removals = [];
+      if (!option || !option.time_slot_label) return removals;
+      const t = option.time_slot_label;
+      const fid = option.faculty_id;
+      const rid = option.room_id;
 
-      const last = this.undoStack.pop();
-      if (last.type !== "manual_assign") return;
+      this.unassigned.forEach(u => {
+        if (u._localId === skipLocalId) return; // don't touch the subject just assigned
+        const original = u.possible_assignments_original || [];
+        const removed = [];
+        const kept = [];
+        original.forEach(o => {
+          // remove if same faculty or same room and time overlaps
+          const facMatch = o.faculty_id === fid;
+          const roomMatch = o.room_id === rid;
+          const timeOverlap = this.slotLabelsOverlap(o.time_slot_label, t);
+          if (timeOverlap && (facMatch || roomMatch)) {
+            removed.push(o);
+          } else kept.push(o);
+        });
+        if (removed.length) {
+          removals.push({ _localId: u._localId, removed: JSON.parse(JSON.stringify(removed)) });
+          u.possible_assignments_original = kept;
+          // update the live suggestions view as well
+          u.possible_assignments = (u.possible_assignments || []).filter(o => !(o.time_slot_label === t && (o.faculty_id === fid || o.room_id === rid)));
+        }
+      });
 
-      const { facultyName, subject, option } = last;
+      return removals;
+    },
+
+undoLastAssignment() {
+  if (this.undoStack.length === 0) {
+    this.showError("No assignments to undo.");
+    return;
+  }
+
+  const last = this.undoStack.pop();
+  if (last.type !== "manual_assign") return;
+
+  const { facultyName, subject, option } = last;
+  const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
+  const roomKey = `${option.room_id}|${option.time_slot_label}`;
+
+  // Remove from groupedSchedules
+  if (this.groupedSchedules[facultyName]) {
+    this.groupedSchedules[facultyName] = this.groupedSchedules[facultyName].filter(
+      (e) => e._localId !== subject._localId
+    );
+  }
+
+  // Free up slot and room
+  delete this.usedSlots[slotKey];
+  delete this.usedRooms[roomKey];
+
+  // Reduce faculty load
+  const f = this.facultyList.find(f => f.id === option.faculty_id);
+  if (f) f.current_load = Math.max(0, (f.current_load || 0) - (subject.units || 0));
+
+  // Restore unassigned subject fully
+  this.unassigned.push({
+    ...subject,
+    possible_assignments: subject.possible_assignments_original
+      ? JSON.parse(JSON.stringify(subject.possible_assignments_original))
+      : [],
+  });
+
+  // Restore any conflicting options removed from other unassigned subjects when this assignment was made
+  const removedConflicts = last.removedConflicts || [];
+  removedConflicts.forEach(rc => {
+    const target = this.unassigned.find(u => u._localId === rc._localId);
+    if (target) {
+      target.possible_assignments_original = (target.possible_assignments_original || []).concat(rc.removed || []);
+      target.possible_assignments = (target.possible_assignments || []).concat(rc.removed || []);
+    }
+  });
+
+  this.refreshAISuggestions();
+  this.showSuccess(`Undid assignment of "${subject.subject_display}"`);
+  },
+  undoAllAssignments() {
+    if (this.undoStack.length === 0) {
+      this.showError("No assignments to undo.");
+      return;
+    }
+
+    const toUndo = [...this.undoStack];
+    this.undoStack = [];
+
+  toUndo.forEach(({ facultyName, subject, option, removedConflicts }) => {
       const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
       const roomKey = `${option.room_id}|${option.time_slot_label}`;
 
-      const entries = this.groupedSchedules[facultyName] || [];
-      const idx = entries.findIndex((e) => e._localId === subject._localId);
-      if (idx !== -1) entries.splice(idx, 1);
+      if (this.groupedSchedules[facultyName]) {
+        this.groupedSchedules[facultyName] = this.groupedSchedules[facultyName].filter(
+          (e) => e._localId !== subject._localId
+        );
+      }
 
       delete this.usedSlots[slotKey];
       delete this.usedRooms[roomKey];
@@ -602,124 +881,318 @@ assignFromSuggestion(subject, option) {
       const fobj = this.findFacultyById(option.faculty_id);
       if (fobj) fobj.current_load = Math.max(0, (fobj.current_load || 0) - (subject.units || 0));
 
-      this.unassigned.push(subject);
+      this.unassigned.push({
+        ...subject,
+        possible_assignments: subject.possible_assignments_original
+          ? JSON.parse(JSON.stringify(subject.possible_assignments_original))
+          : [],
+      });
 
-      this.refreshAISuggestions();
-      this.showSuccess(`Undid assignment of "${subject.subject_display}"`);
-    },
+      // restore removed conflicts for each undo entry
+      (removedConflicts || []).forEach(rc => {
+        const target = this.unassigned.find(u => u._localId === rc._localId);
+        if (target) {
+          target.possible_assignments_original = (target.possible_assignments_original || []).concat(rc.removed || []);
+          target.possible_assignments = (target.possible_assignments || []).concat(rc.removed || []);
+        }
+      });
+    });
 
-    undoAllAssignments() {
-      if (this.undoStack.length === 0) {
-        this.showError("No assignments to undo.");
+    this.refreshAISuggestions();
+    this.showSuccess("All manual assignments undone.");
+  },
+    
+    async generateSchedule() {
+      if (!this.academicYear) {
+        this.showError("Please provide Academic Year before generating.");
         return;
       }
 
-      const lastStack = [...this.undoStack];
-      this.undoStack = [];
+      this.groupedSchedules = {}; 
+      this.unassigned = [];
+      this.summary = null;
+      this.conflicts = [];
 
-      lastStack.forEach((entry) => {
-        if (entry.type === "manual_assign") {
-          const { facultyName, subject, option } = entry;
-          const slotKey = `${option.faculty_id}|${option.time_slot_label}`;
-          const roomKey = `${option.room_id}|${option.time_slot_label}`;
+      const semesterMap = {
+        "1st Semester": 1,
+        "2nd Semester": 2,
+      };
+      const semester_id = semesterMap[this.semester] || 1;
 
-          const entries = this.groupedSchedules[facultyName] || [];
-          const idx = entries.findIndex((e) => e._localId === subject._localId);
-          if (idx !== -1) entries.splice(idx, 1);
+      this.loading = true;
+      this.show();
 
-          delete this.usedSlots[slotKey];
-          delete this.usedRooms[roomKey];
+      try {
+        const res = await fetch("/api/generate-schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            academicYear: this.academicYear,
+            semester: this.semester, // send the string directly
+          }),
+        });
 
-          this.unassigned.push(subject);
-
-          const fobj = this.findFacultyById(option.faculty_id);
-          if (fobj) fobj.current_load = Math.max(0, (fobj.current_load || 0) - (subject.units || 0));
+        const result = await res.json();
+        if (!result || !result.success) {
+          this.showError(result?.message || "Failed to generate schedule.");
+          return;
         }
-      });
 
-      this.refreshAISuggestions();
-      this.showSuccess("All manual assignments undone.");
-    },
-   async generateSchedule() {
-  if (!this.academicYear) {
-    this.showError("Please provide Academic Year before generating.");
-    return;
-  }
+  const grouped = {};
 
-  this.groupedSchedules = {};
-  this.unassigned = [];
-  this.summary = null;
-  this.conflicts = [];
+  // reset occupied trackers so we can populate them from AI assigned schedule
+  this.usedSlots = {};
+  this.usedRooms = {};
+        const sched = Array.isArray(result.schedule) ? result.schedule : [];
 
-  const semesterMap = {
-    "1st Semester": 1,
-    "2nd Semester": 2,
+        sched.forEach((s, idx) => {
+          const facultyName = (s.faculty || s.faculty_name || "Unassigned").toString().trim();
+          if (!grouped[facultyName]) grouped[facultyName] = [];
+
+          // normalize time and ids
+          const timeSlot = s.time_slot || s.time_slot_label || "";
+          const facultyId = s.faculty_id ?? s.facultyId ?? null;
+          const roomId = (s.room_id ?? s.roomId ?? null) || s.room || null;
+
+          grouped[facultyName].push({
+            subject: s.subject_title || s.subject || 'Untitled',
+            time: timeSlot,
+            classroom: s.room_name || s.room || "",
+            // try all likely keys for course/subject code
+            courseCode: s.course_code || s.courseCode || s.subject_code || s.course || "",
+            courseSection: s.course_section || s.courseSection || "",
+            units: s.units || 0,
+            faculty: s.faculty_name || facultyName,
+            faculty_id: facultyId,
+            room_id: roomId,
+            subject_id: s.subject_id ?? s.id ?? null,
+            _localId: `${Date.now()}-${idx}-${Math.random()}`,
+          });
+
+          // mark occupied slots/rooms so suggestions that conflict are filtered
+          if (facultyId && timeSlot) this.usedSlots[`${facultyId}|${this.normalizeSlotLabel(timeSlot)}`] = true;
+          if (roomId && timeSlot) this.usedRooms[`${roomId}|${this.normalizeSlotLabel(timeSlot)}`] = true;
+        });
+
+       this.unassigned = result.unassigned.map((u, idx) => {
+  const courseSection =
+    u.course_section ||
+    u.curriculum_subject?.course_section ||
+    u.curriculum?.course_section ||
+    "-";
+
+  return {
+    ...u,
+    course_section: courseSection,
+    possible_assignments_original: u.possible_assignments || [],
+    possible_assignments: u.possible_assignments || [],
+    subject_display: `${u.course_code ? u.course_code + " - " : ""}${u.subject_title || u.subject || "Untitled"} (${courseSection})`,
+    _localId: `${Date.now()}-${idx}-${Math.random()}`,
   };
-  const semester_id = semesterMap[this.semester] || 1;
+});
 
-  this.loading = true;
-  this.show();
 
-  try {
-    const res = await fetch("/api/generate-schedule", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        academicYear: this.academicYear,
-        semester: this.semester,
-      }),
-    });
+        this.groupedSchedules = grouped;
 
-    const result = await res.json();
-    if (!result || !result.success) {
-      this.showError(result?.message || "Failed to generate schedule.");
-      return;
-    }
+        // Populate usedSlots/usedRooms from groupedSchedules entries (including manual edits)
+        Object.values(this.groupedSchedules).forEach(entries => {
+          entries.forEach(e => {
+            const t = e.time || e.time_slot || '';
+            const norm = this.normalizeSlotLabel(t);
+            let fid = e.faculty_id || null;
+            if (!fid && e.faculty) {
+              const fobj = this.findFacultyByName(e.faculty);
+              fid = fobj ? fobj.id : null;
+            }
+            let rid = e.room_id || e.room || null;
+            if (!rid && e.classroom) {
+              const robj = this.findRoomByName(e.classroom);
+              rid = robj ? robj.id : null;
+            }
+            if (fid && t) this.usedSlots[`${fid}|${this.normalizeSlotLabel(norm)}`] = true;
+            if (rid && t) this.usedRooms[`${rid}|${this.normalizeSlotLabel(norm)}`] = true;
+          });
+        });
 
-    const grouped = {};
-    const sched = Array.isArray(result.schedule) ? result.schedule : [];
-    const curriculumSubjects = result.curriculum_subjects || [];  // Include curriculum_subjects in the API response
+        this.sidebarOpen = true;
 
-    sched.forEach((s, idx) => {
-      const faculty = (s.faculty || s.faculty_name || "Unassigned").toString().trim();
-      if (!grouped[faculty]) grouped[faculty] = [];
+        // Build initial faculty list from AI suggestions and grouped schedules so loads and departments are available
+        const facultyMap = {};
+        // Initialize faculty entries from AI suggestion metadata but DO NOT trust faculty_current_load
+        // from suggestions alone (they may later be recomputed). We'll start with 0 and add
+        // loads from already assigned schedule entries below to avoid double-counting.
+        (this.unassigned || []).forEach(u => {
+          (u.possible_assignments_original || []).forEach(opt => {
+            if (!facultyMap[opt.faculty_id]) {
+              facultyMap[opt.faculty_id] = {
+                id: opt.faculty_id,
+                name: opt.faculty_name || `F-${opt.faculty_id}`,
+                current_load: 0, // start at zero; will aggregate from groupedSchedules
+                max_load: opt.faculty_max_load || 12,
+                department: opt.faculty_department || null,
+              };
+            } else {
+              // ensure max_load and department exist if missing
+              facultyMap[opt.faculty_id].max_load = facultyMap[opt.faculty_id].max_load || opt.faculty_max_load || 12;
+              facultyMap[opt.faculty_id].department = facultyMap[opt.faculty_id].department || opt.faculty_department || null;
+            }
+          });
+        });
 
-      const courseSection = this.getCourseSection(s.course_id, curriculumSubjects);  // Get course section from the curriculum subjects
+        Object.values(this.groupedSchedules).forEach(entries => {
+          entries.forEach(e => {
+            // Match by faculty id first (if possible), then by name fallback
+            let existing = null;
+            if (e.faculty_id) existing = facultyMap[e.faculty_id];
+            if (!existing) existing = Object.values(facultyMap).find(f => f.name === (e.faculty || e.faculty_name));
+            if (existing) existing.current_load = (existing.current_load || 0) + (Number(e.units) || 0);
+            else {
+              const key = `name-${e.faculty || e.faculty_name}`;
+              if (!facultyMap[key]) facultyMap[key] = { id: null, name: e.faculty || e.faculty_name, current_load: Number(e.units) || 0, max_load: 12, department: null };
+              else facultyMap[key].current_load += Number(e.units) || 0;
+            }
+          });
+        });
 
-      grouped[faculty].push({
-        subject: s.subject_title || s.subject || 'Untitled',
-        time: s.time_slot || "",
-        classroom: s.room_name || "",
-        courseCode: s.course_code || "",
-        courseSection: courseSection,  // Use the fetched course section
-        units: s.units || 0,
-        faculty: s.faculty_name || faculty,
-        subject_id: s.subject_id ?? s.id ?? null,
-        _localId: `${Date.now()}-${idx}-${Math.random()}`,
-      });
-    });
+        this.facultyList = Object.values(facultyMap);
 
-    this.unassigned = result.unassigned.map((u, idx) => ({
-      ...u,
-      possible_assignments_original: u.possible_assignments || [],
-      possible_assignments: u.possible_assignments || [],
-      subject_display: `${u.course_code ? u.course_code + " - " : ""}${u.subject_title || u.subject || "Untitled"}`,
-      _localId: `${Date.now()}-${idx}-${Math.random()}`,
-    }));
+        // Deduplicate/merge facultyList by id or name to avoid duplicate faculty entries
+        const merged = {};
+        this.facultyList.forEach(f => {
+          const key = f.id || `name-${f.name}`;
+          if (!merged[key]) merged[key] = { ...f };
+          else {
+            merged[key].current_load = Math.max(merged[key].current_load || 0, f.current_load || 0);
+            merged[key].max_load = merged[key].max_load || f.max_load || 12;
+            merged[key].department = merged[key].department || f.department || null;
+            merged[key].id = merged[key].id || f.id || null;
+            merged[key].name = merged[key].name || f.name || '';
+          }
+        });
+    this.facultyList = Object.values(merged);
 
-    this.groupedSchedules = grouped;
-    this.sidebarOpen = true;
+    // Recompute and display AI suggestions limited per faculty
+    this.refreshAISuggestions();
+
+  // Add missing helper: confirmation for overload assignments
+
+    // await this.refreshFacultiesAndRooms();
 
     this.showSuccess(result.message || "Schedule generated successfully!");
-  } catch (err) {
-    console.error(err);
-    this.showError("Could not generate schedule.");
-  } finally {
-    this.hide();
-    this.loading = false;
-  }
-}
+      } catch (err) {
+        console.error(err);
+        this.showError("Could not generate schedule.");
+      } finally {
+        this.hide();
+        this.loading = false;
+      }
+    },
 
+    // Save current schedule (groupedSchedules + unassigned) as pending or finalized
+    async saveSchedule(mode = 'pending') {
+      if (!this.academicYear) return this.showError('Please set Academic Year before saving.');
+      const payload = {
+        academicYear: this.academicYear,
+        semester: this.semester,
+        mode,
+        grouped: Object.entries(this.groupedSchedules).reduce((arr, [faculty, entries]) => {
+          entries.forEach(e => arr.push({ ...e, faculty }));
+          return arr;
+        }, []),
+        unassigned: this.unassigned || []
+      };
+
+      this.show();
+      try {
+        // Laravel controller expects POST /api/save-schedule with body { schedule: [...] }
+        const url = `${this.apiBase}/save-schedule`;
+
+        // Build schedule array: flatten grouped rows + unassigned items into the expected shape
+        const scheduleArray = [];
+        (payload.grouped || []).forEach(r => {
+          scheduleArray.push({
+            faculty: r.faculty || r.faculty_name || null,
+            subject: r.subject || r.subject_title || null,
+            time: r.time || r.time_slot || null,
+            classroom: r.classroom || r.room_name || r.room || null,
+            course_code: r.courseCode || r.course_code || null,
+            course_section: r.courseSection || r.course_section || null,
+            units: Number(r.units || 0),
+            academicYear: payload.academicYear,
+            semester: payload.semester,
+            status: mode === 'finalized' ? 'finalized' : 'pending',
+          });
+        });
+        (payload.unassigned || []).forEach(u => {
+          scheduleArray.push({
+            faculty: u.faculty || u.faculty_name || null,
+            subject: u.subject_display || u.subject_title || u.subject || null,
+            time: u.time || u.time_slot_label || null,
+            classroom: u.classroom || u.room_name || u.room || null,
+            course_code: u.course_code || u.courseCode || u.subject_code || null,
+            course_section: u.course_section || u.courseSection || null,
+            units: Number(u.units || 0),
+            academicYear: payload.academicYear,
+            semester: payload.semester,
+            status: mode === 'finalized' ? 'finalized' : 'pending',
+            // attach original unassigned possible_assignments so backend can persist suggestions
+            possible_assignments: u.possible_assignments || u.possible_assignments_original || [],
+            payload: u, // keep original for debugging if needed
+          });
+        });
+
+        let res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schedule: scheduleArray }),
+        });
+
+        // If route doesn't accept this POST (405) or other non-ok, try legacy endpoint as fallback
+        if (!res.ok && res.status === 405) {
+          console.warn('Primary save endpoint returned 405, retrying legacy /api/pending-schedules');
+          res = await fetch('/api/pending-schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ schedule: scheduleArray }),
+          });
+        }
+
+        // If backend returned an error status, show the raw response (often HTML/error page)
+        if (!res.ok) {
+          const text = await res.text();
+          this.showError(`Save failed (${res.status}): ${text.substring(0, 300)}`);
+          console.error('Save failed response:', res.status, text);
+          return;
+        }
+
+        // Try to parse JSON; if the response is HTML (starts with '<'), handle gracefully
+        const contentType = res.headers.get('content-type') || '';
+        let data = null;
+        if (contentType.includes('application/json')) {
+          try { data = await res.json(); } catch (e) { data = null; }
+        } else {
+          // If server returned HTML (starts with '<'), capture a short preview and surface a clearer message
+          const text = await res.text();
+          const preview = text ? text.substring(0, 300) : '';
+          this.showError('Save succeeded but server returned unexpected response (non-JSON). See console for preview.');
+          console.warn('Unexpected non-JSON save response:', preview);
+          return;
+        }
+
+        if (data && data.success) {
+          this.showSuccess(mode === 'pending' ? 'Saved as pending.' : 'Schedule finalized.');
+          if (mode === 'pending' && data.batch_id) this.selectedBatch = data.batch_id;
+        } else {
+          const serverMsg = data && (data.message || data.error) ? (data.message || data.error) : 'Failed to save schedule.';
+          this.showError(serverMsg);
+        }
+      } catch (err) {
+        console.error(err);
+        this.showError('Network error while saving schedule.');
+      } finally {
+        this.hide();
+      }
+    },
   },
 };
 
@@ -1033,6 +1506,13 @@ assignFromSuggestion(subject, option) {
   padding: 14px;
 }
 
+/* Badges for suggestion flags */
+.pa-badges { display: inline-flex; gap: 6px; margin-left: 8px; align-items: center; }
+.badge { padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #fff; }
+.badge-dept { background: #16a34a; }
+.badge-overload { background: #e11d48; }
+.badge-conflict { background: #f59e0b; color: #111; }
+
 .sidebar-header h4 {
   font-size: 1.3rem;
 }
@@ -1051,6 +1531,48 @@ assignFromSuggestion(subject, option) {
     right: 0;
   }
 }
+.faculty-item {
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  transition: background-color 0.3s ease, transform 0.2s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.faculty-item {
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  transition: background 0.2s ease;
+}
+
+/* Visual indicator colors */
+.faculty-item.suitable {
+  background-color: rgba(0, 200, 0, 0.1);
+  border-left: 5px solid #00b300;
+}
+
+.faculty-item.underload {
+  background-color: rgba(255, 255, 0, 0.15);
+  border-left: 5px solid #e6b800;
+}
+
+.faculty-item.overload {
+  background-color: rgba(255, 165, 0, 0.2);
+  border-left: 5px solid #ff9900;
+}
+
+.faculty-item.mismatch {
+  background-color: rgba(255, 0, 0, 0.15);
+  border-left: 5px solid #e60000;
+}
+
+/* Add a hover effect for clarity */
+.faculty-item:hover {
+  transform: scale(1.02);
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
 .faculty-item {
   position: relative;
   margin-bottom: 6px;

@@ -476,7 +476,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     solver.parameters.max_time_in_seconds = max_solve_seconds
     solver.parameters.num_search_workers = search_workers
     status = solver.Solve(model)
-
     assigned = []
     unassigned = []
     assigned_subject_ids = set()
@@ -519,7 +518,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     "is_overloaded": is_overloaded
                 })
                 assigned_subject_ids.add(sid)
-
     # Identify unassigned subjects
     for subj in curriculum_subjects:
         sid = subj.get('id')
@@ -536,7 +534,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "possible_combos_count": len(combos_by_subject.get(sid, [])),
                 "reasons": reasons
             })
-
     # Generate conflict reports
     conflicts = []
     for u in unassigned:
@@ -556,7 +553,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     "description": msg,
                     "reasons": u.get('reasons')
                 })
-
     # Check for overloaded faculty
     faculty_assignment_units = defaultdict(int)
     for a in assigned:
@@ -576,7 +572,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     "max_load_units": max_load_units,
                     "description": f"Faculty '{fobj.get('name')}' is overloaded: {units} units vs max {max_load_units}"
                 })
-
     # Check time overlaps
     fac_slots = defaultdict(list)
     room_slots = defaultdict(list)
@@ -605,7 +600,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         "subject_b_id": b.get('subject_id'),
                         "description": f"Overlap detected for {owner_type} between '{a.get('subject_title')}' and '{b.get('subject_title')}' at {a.get('time_slot')} / {b.get('time_slot')}"
                     })
-
     for fid, lst in fac_slots.items():
         detect_overlaps(lst, "faculty")
     for rid, lst in room_slots.items():
@@ -623,7 +617,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "subject_id": a.get('subject_id'),
                 "description": f"Assigned '{a.get('subject_title')}' to '{fobj.get('name')}' during their unavailable time {t} (1h buffer)."
             })
-
     # -----------------------------
     # Helper: force assign (DISABLED as requested)
     # -----------------------------
@@ -644,12 +637,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "possible_combos_count": len(combos_by_subject.get(sid, [])),
                 "reasons": reasons
             })
-
     # -----------------------------
     # Populate possible_assignments for unassigned subjects
-    # -----------------------------
-    # -----------------------------
-    # Populate possible_assignments for unassigned subjects (one best per faculty)
     # -----------------------------
     # Precompute current assigned load per faculty id (from solver assignments)
     # 1) build current loads from already assigned schedule
@@ -676,21 +665,47 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if rid:
                 occupied_slots_by_room[rid].add(t)
 
-    top_per_faculty = 3
+    top_per_faculty = 10
     heap_counter = itertools.count()
 
     # Iterate through unassigned subjects
+    # Loop through unassigned subjects
+    # Fetch all courses once and build a lookup dictionary
+    
+    # -----------------------------
+    # FETCH COURSE SECTIONS FOR LOOKUP
+    # -----------------------------
+    try:
+        # ✅ Use only existing columns
+        cursor.execute("SELECT id, name, year, students, curriculum_id FROM courses")
+        courses_all = cursor.fetchall() or []
+        course_lookup = {c["id"]: c for c in courses_all}
+        print(f"[DEBUG] Loaded {len(courses_all)} courses", file=sys.stderr)
+        print(f"[DEBUG] Loaded {len(course_lookup)} courses for section lookup.", file=sys.stderr)
+    except Exception as e:
+        print(f"[ERROR] Could not fetch course data: {e}", file=sys.stderr)
+        course_lookup = {}
+
     for u in unassigned:
         sid = u['subject_id']
-        
-        # Find the corresponding subject in the curriculum_subjects list using subject_id
+
+        # Find the corresponding subject in the curriculum_subjects list
         subj_obj = next((s for s in curriculum_subjects if s.get('id') == sid), None)
-        
-        # If found, retrieve subject details; otherwise, set to default values
-        subj_dept = subj_obj.get('dept') if subj_obj else None
+
+        # --- Extract subject and course details ---
+        subj_course_id = subj_obj.get('course_id') if subj_obj else None
         subj_course_code = subj_obj.get('subject_code') if subj_obj else None
-        subj_course_section = subj_obj.get('course_section') if subj_obj else None  # Get course_section
         subj_units = subj_obj.get('units', 3) if subj_obj else (u.get('units') or 3)
+        subj_dept = subj_obj.get('dept') if subj_obj else None
+
+        # --- Fetch course info dynamically from DB ---
+        subj_course_section = "-"
+        subj_course_name = None
+
+        if subj_course_id and subj_course_id in course_lookup:
+            course_data = course_lookup[subj_course_id]
+            subj_course_section = course_lookup.get(subj_course_id, {}).get('name', '-') if subj_course_id else "-"
+            subj_course_name = f"Year {course_data.get('year', '-')}"  # optional descriptive name
 
         candidates_by_faculty = defaultdict(list)
 
@@ -711,7 +726,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 slot_struct = {"day": None, "start": None, "end": None}
 
             faculty_dept = fobj.get('department')
-            dept_match = bool(subj_dept and faculty_dept and subj_dept == faculty_dept)
+            dept_match = (subj_dept and faculty_dept and subj_dept == faculty_dept) or not subj_dept
             room_cap = robj.get('capacity')
             faculty_current = current_load_by_faculty.get(fid, 0)
             faculty_max = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
@@ -748,7 +763,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "score": score,
             }
 
-            # Add to the heap for each faculty
             heapq.heappush(candidates_by_faculty[fid], (-score, next(heap_counter), candidate))
 
         # Flatten the top N candidates
@@ -759,16 +773,16 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 combined.append(cand)
 
         possible = sorted(combined, key=lambda x: x.get("score", 0), reverse=True)
-
-        # Add subject details including course code and course section to the unassigned subject
-        u["subject_display"] = f"{subj_course_code + ' - ' if subj_course_code else ''}{u.get('subject_title') or u.get('subject') or 'Untitled'}"
-        u["subject_code"] = subj_course_code  # Pass subject_code separately for the frontend
-        u["course_section"] = subj_course_section if subj_course_section is not None else "-"  # Pass course_section separately for the frontend
+        print(f"[DEBUG] Subject {sid} ({subj_course_code or 'NoCode'}) → Possible={len(possible)}",file=sys.stderr
+            )
+        # ✅ Add subject details including course info
+        u["subject_display"] = f"{(subj_course_code or '')} - {(u.get('subject_title') or subj_obj.get('subject_title') or 'Untitled')}"
+        u["subject_code"] = subj_course_code
+        u["course_section"] = subj_course_section
+        u["course_name"] = subj_course_name
         u["possible_assignments"] = possible
 
-
-
-
+    # --- SUMMARY BLOCK ---
     total_curriculum = len(curriculum_subjects)
     total_assigned_count = len(assigned)
     total_unassigned_count = len(unassigned)
@@ -780,18 +794,27 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         "unassigned_ids": [u.get('subject_id') for u in unassigned],
     }
 
-    cursor.close()
-    db.close()
-
+    # ✅ Return with clean serializable unassigned subjects (includes course_section)
     return {
         "success": True,
         "message": "Schedule generation finished",
         "schedule": assigned,
-        "unassigned": unassigned,
+        "unassigned": [
+            {
+                "subject_id": u.get("subject_id"),
+                "subject_title": u.get("subject_title"),
+                "subject_code": u.get("subject_code"),
+                "course_section": u.get("course_section", "-"),
+                "units": u.get("units", 3),
+                "possible_assignments": u.get("possible_assignments", []),
+                "subject_display": u.get("subject_display", ""),
+            }
+            for u in unassigned
+        ],
         "summary": summary,
-        "conflicts": conflicts,
-        "force_assign_fn": force_assign  # programmatic only (not serializable)
+        "conflicts": conflicts
     }
+
 
 if __name__ == "__main__":
     import json, sys, argparse, traceback

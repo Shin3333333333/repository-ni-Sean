@@ -156,6 +156,36 @@
                 </span>
               </td>
             </tr>
+            <!-- Suggestion cards for unassigned rows (faculty Unknown) -->
+            <tr v-if="element.faculty === 'Unknown' && (element.possible_assignments && element.possible_assignments.length)">
+              <td v-if="editMode"></td>
+              <td v-if="deleteMode"></td>
+              <td :colspan="tableColumns.length">
+                <div class="suggestions">
+                  <div
+                    v-for="(sug, si) in element.possible_assignments.slice(0,3)"
+                    :key="si"
+                    class="suggestion-card"
+                  >
+                    <div class="suggestion-main">
+                      <div class="suggestion-left">
+                        <div class="s-title">{{ sug.faculty_name || sug.faculty || sug.faculty_display || sug.faculty_name_display || 'Faculty' }}</div>
+                        <div class="s-meta">{{ sug.time || sug.time_slot_label || sug.slot || '' }} • {{ sug.room_name || sug.classroom || sug.room || '' }} • {{ sug.units ? sug.units + 'u' : '' }}</div>
+                      </div>
+                      <div class="suggestion-right">
+                        <button class="assign-btn" @click="assignSuggestion(element.id, sug)">Assign</button>
+                      </div>
+                    </div>
+                    <div class="badges">
+                      <span v-if="sug.deptMatch" class="badge dept">Dept</span>
+                      <span v-if="sug.willExceed" class="badge overload">Overload</span>
+                      <span v-if="sug.conflictsExistingSlot" class="badge conflict">Time</span>
+                      <span v-if="sug.conflictsExistingRoom" class="badge room">Room</span>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
           </template>
         </draggable>
       </table>
@@ -434,30 +464,71 @@ async saveChanges() {
     const res = await fetch(`/api/pending-schedules/${batchId}`);
     const data = await res.json();
 
-    // Check if it's grouped (object) or array
-    let schedules = [];
-    if (data.pending && !Array.isArray(data.pending)) {
-      // Flatten grouped object into array
-      for (const group of Object.values(data.pending)) {
-        schedules.push(...group);
+    // Server may return an object with `grouped` and `unassigned` arrays if saved from CreatePanel
+    if (data.grouped || data.unassigned) {
+      let groupedRaw = data.grouped || [];
+      // grouped may be an array of rows or an object keyed by faculty -> rows
+      let grouped = [];
+      if (Array.isArray(groupedRaw)) grouped = groupedRaw;
+      else if (groupedRaw && typeof groupedRaw === 'object') {
+        // flatten values (each value may be an array of rows)
+        Object.values(groupedRaw).forEach(v => {
+          if (Array.isArray(v)) grouped.push(...v);
+          else if (v) grouped.push(v);
+        });
       }
+      // grouped is now an array of rows with faculty attached
+      this.pendingSchedules = grouped.map((s) => ({
+        id: s._localId || s.id || s.subject_id || `${s.courseCode || s.subject}-${Math.random()}`,
+        subject_code: s.courseCode || s.course_code || "",
+        faculty: s.faculty || s.faculty_name || "Unknown",
+        subject: s.subject || s.subject_title || "Untitled",
+        time: s.time || s.time_slot || "",
+        classroom: s.classroom || s.room_name || s.room || "",
+        course_section: s.courseSection || s.course_section || "",
+        units: Number(s.units || 0),
+      }));
+
+      // Also keep unassigned (assignable later) by appending them with faculty 'Unknown' and keeping original possible_assignments
+      const unassigned = data.unassigned || [];
+      unassigned.forEach(u => {
+        this.pendingSchedules.push({
+          id: u._localId || u.id || `${u.subject_code || u.subject}-${Math.random()}`,
+          subject_code: u.course_code || u.courseCode || u.subject_code || "",
+          faculty: u.faculty || "Unknown",
+          subject: u.subject_display || u.subject_title || u.subject || "Untitled",
+          time: u.time || u.time_slot_label || "",
+          classroom: u.classroom || u.room_name || "",
+          course_section: u.course_section || u.courseSection || "",
+          units: Number(u.units || 0),
+          // keep possible_assignments so UI can allow assigning
+          possible_assignments: u.possible_assignments || u.possible_assignments_original || []
+        });
+      });
+
+      this.showModal = true;
     } else {
-      schedules = data.pending || data.schedules || [];
+      // Backwards-compatible: older API responses
+      let schedules = [];
+      if (data.pending && !Array.isArray(data.pending)) {
+        for (const group of Object.values(data.pending)) schedules.push(...group);
+      } else {
+        schedules = data.pending || data.schedules || [];
+      }
+
+      this.pendingSchedules = schedules.map((s) => ({
+        id: s._localId || s.id,
+        subject_code: s.courseCode || s.course_code || "",
+        faculty: s.faculty || "Unknown",
+        subject: s.subject || "Untitled",
+        time: s.time || "",
+        classroom: s.classroom || "",
+        course_section: s.courseSection || s.course_section || "",
+        units: Number(s.units || 0),
+      }));
+
+      this.showModal = true;
     }
-
-   this.pendingSchedules = schedules.map((s) => ({
-    id: s._localId || s.id,
-    subject_code: s.courseCode || s.course_code || "", // matches "Subject Code"
-    faculty: s.faculty || "Unknown",
-    subject: s.subject || "Untitled",
-    time: s.time || "",
-    classroom: s.classroom || "",
-    course_section: s.courseSection || s.course_section || "", // match table column
-    units: Number(s.units || 0),
-  }));
-
-
-    this.showModal = true;
   } catch (err) {
     console.error(err);
     alert("Failed to load batch details.");
@@ -548,6 +619,26 @@ async saveChanges() {
       } finally {
         this.hide();
       }
+    },
+    assignSuggestion(rowId, suggestion) {
+      // Find the pendingSchedules entry by id and apply suggestion fields
+      const idx = this.pendingSchedules.findIndex((r) => r.id === rowId);
+      if (idx === -1) return;
+
+      const row = this.pendingSchedules[idx];
+
+      // Map common fields from suggestion into the pending row
+      row.faculty = suggestion.faculty || suggestion.faculty_name || suggestion.faculty_display || suggestion.faculty_name_display || row.faculty;
+      row.time = suggestion.time || suggestion.time_slot_label || suggestion.slot || row.time;
+      row.classroom = suggestion.room_name || suggestion.classroom || suggestion.room || row.classroom;
+      row.units = Number(suggestion.units || row.units || 0);
+
+      // Remove possible_assignments now that we've assigned it
+      delete row.possible_assignments;
+
+      // Force reactivity
+      this.pendingSchedules = [...this.pendingSchedules];
+      alert(`Assigned ${row.subject || row.subject_code} to ${row.faculty}`);
     },
     closeModal() {
       this.showModal = false;
@@ -756,6 +847,49 @@ async saveChanges() {
   color: white;
   text-align: center;
 }
+
+.suggestions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+.suggestion-card {
+  background: #fff;
+  border: 1px solid #e1e4e8;
+  padding: 8px 12px;
+  border-radius: 8px;
+  min-width: 220px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.suggestion-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.s-title {
+  font-weight: 600;
+  color: #2c3e50;
+}
+.s-meta {
+  font-size: 12px;
+  color: #666;
+}
+.assign-btn {
+  background: #2ecc71;
+  border: none;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.assign-btn:hover { filter: brightness(0.95); }
+.badges { margin-top: 8px; display:flex; gap:6px; flex-wrap:wrap }
+.badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; color: white }
+.badge.dept { background: #3498db }
+.badge.overload { background: #e67e22 }
+.badge.conflict { background: #e74c3c }
+.badge.room { background: #9b59b6 }
 .summary-card.assigned { background: rgb(150, 201, 175); }
 .summary-card.unassigned { background: rgb(226, 194, 133); }
 .summary-card.conflicts { background: rgb(214, 118, 118); color: #333; }
