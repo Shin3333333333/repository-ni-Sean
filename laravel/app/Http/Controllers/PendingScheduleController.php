@@ -34,44 +34,64 @@ public function show($batch_id)
     $pending = PendingSchedule::where('batch_id', $batch_id)
         ->where('status', 'pending')
         ->get();
+
     $grouped = [];
     $unassigned = [];
 
     foreach ($pending as $p) {
-        // If this row has a payload (saved from CreatePanel unassigned), treat it as unassigned
-        if (!empty($p->payload) && is_array($p->payload) && !empty($p->payload['possible_assignments'])) {
-            $unassigned[] = [
-                'id' => $p->id,
-                'faculty' => $p->faculty,
-                'subject' => $p->subject,
-                'time' => $p->time,
-                'classroom' => $p->classroom,
-                'course_code' => $p->course_code,
-                'course_section' => $p->course_section,
-                'units' => $p->units,
-                'payload' => $p->payload,
-                '_localId' => $p->id,
-            ];
-            continue;
+        // Access payload (Laravel auto-casts JSON to array)
+        $payload = $p->payload ?? [];
+
+        // Get merged possible assignments from model accessor
+        $possibleAssignments = $p->possible_assignments ?? [];
+        $possibleCount = count($possibleAssignments);
+
+        // Normalize faculty field
+        $faculty = trim($p->faculty ?? '');
+        $isUnassigned = false;
+
+        // Detect unassigned based on multiple indicators
+        if (
+            !$faculty ||
+            strtolower($faculty) === 'unknown' ||
+            strtolower($faculty) === 'unassigned' ||
+            $possibleCount > 0
+        ) {
+            $isUnassigned = true;
         }
 
-        $faculty = $p->faculty ?? 'Unassigned';
-        if (!isset($grouped[$faculty])) $grouped[$faculty] = [];
-        $grouped[$faculty][] = [
+        // Prepare schedule item
+        $item = [
+            'id' => $p->id,
+            'faculty' => $p->faculty,
             'subject' => $p->subject,
             'time' => $p->time,
             'classroom' => $p->classroom,
-            'courseCode' => $p->course_code,
-            'courseSection' => $p->course_section,
+            'course_code' => $p->course_code,
+            'course_section' => $p->course_section,
             'units' => $p->units,
-            'faculty' => $p->faculty,
-            'subject_id' => $p->id,
+            'payload' => $payload,
+            'possible_assignments' => $possibleAssignments,
+            'possible_assignments_count' => $possibleCount,
             '_localId' => $p->id,
         ];
+
+        if ($isUnassigned) {
+            $unassigned[] = $item;
+        } else {
+            if (!isset($grouped[$faculty])) {
+                $grouped[$faculty] = [];
+            }
+            $grouped[$faculty][] = $item;
+        }
     }
 
-    return response()->json(['grouped' => $grouped, 'unassigned' => $unassigned]);
+    return response()->json([
+        'grouped' => $grouped,
+        'unassigned' => $unassigned,
+    ]);
 }
+
 public function destroy($batch_id)
 {
     PendingSchedule::where('batch_id', $batch_id)->delete();

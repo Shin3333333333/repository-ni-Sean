@@ -28,5 +28,22 @@ class PendingSchedule extends Model
     protected $casts = [
         'payload' => 'array',
     ];
+     protected $appends = ['possible_assignments'];
+
+    /**
+     * Accessor for possible assignments.
+     * Returns payload[possible_assignments] or falls back to payload[possible_assignments_original]
+     */
+    public function getPossibleAssignmentsAttribute()
+    {
+        $payload = $this->payload ?? [];
+        $assignments = $payload['possible_assignments'] ?? [];
+
+        if (empty($assignments) && !empty($payload['possible_assignments_original'])) {
+            $assignments = $payload['possible_assignments_original'];
+        }
+
+        return $assignments;
+    }
 
 }
