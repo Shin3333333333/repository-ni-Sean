@@ -64,19 +64,23 @@
               </option>
             </select>
           </div>
-          <div class="header-buttons">
-            <div class="action-buttons">
-              <button class="edit-btn" @click="toggleEditMode">
-                {{ editMode ? 'Finish Editing' : 'Edit' }}
-              </button>
-              <button v-if="editMode" class="save-btn" @click="saveChanges">
-                💾 Save Changes
-              </button>
-              <button class="finalize-btn" @click="finalizeBatch">Finalize</button>
-              <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
-              <button class="exit-btn" @click="closeModal">Exit</button>
-            </div>
-          </div>
+         <!-- ====== Header Buttons ====== -->
+<div class="header-buttons">
+  <div class="action-buttons">
+    <button class="edit-btn" @click="toggleEditMode">
+      {{ editMode ? 'Finish Editing' : 'Edit' }}
+    </button>
+    <button v-if="editMode" class="save-btn" @click="saveChanges">
+      💾 Save Changes
+    </button>
+    <button class="undo-btn" @click="undoLastAction">
+      ↩️ Undo Last Action
+    </button>
+    <button class="finalize-btn" @click="finalizeBatch">Finalize</button>
+    <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
+    <button class="exit-btn" @click="closeModal">Exit</button>
+  </div>
+</div>
         </div>
 
         <!-- ====== Summary Overview ====== -->
@@ -281,6 +285,7 @@ export default {
       facultyFilter: "",
       usedSlots: {},
       usedRooms: {},
+      actionHistory: [], // Stack to store undoable actions
     };
   },
   setup() {
@@ -325,21 +330,31 @@ export default {
     totalUnassigned() {
       return this.pendingSchedules.filter(s => !s.faculty || s.faculty === "Unknown").length;
     },
-    totalConflicts() {
-      let conflicts = 0;
-      const seen = {};
-      for (const s of this.pendingSchedules) {
-        const keyFac = `${s.faculty}-${s.time}`;
-        const keyRoom = `${s.classroom}-${s.time}`;
-        if (seen[keyFac]) conflicts++;
-        if (seen[keyRoom]) conflicts++;
-        seen[keyFac] = true;
-        seen[keyRoom] = true;
-      }
-      return conflicts;
-    }
+totalConflicts() {
+  let conflicts = 0;
+  const seenFac = {};
+  const seenRoom = {};
+
+  for (const s of this.pendingSchedules) {
+    // Skip unassigned subjects
+    if (!s.faculty || s.faculty === "Unknown" || !s.time || !s.classroom) continue;
+
+    const keyFac = `${s.faculty}|${s.time}`;
+    const keyRoom = `${s.classroom}|${s.time}`;
+
+    if (seenFac[keyFac]) conflicts++;
+    else seenFac[keyFac] = true;
+
+    if (seenRoom[keyRoom]) conflicts++;
+    else seenRoom[keyRoom] = true;
+  }
+
+  return conflicts;
+}
+
   },
   methods: { 
+
       linkedColumns() {
     return {
       "Subject": ["subject", "subject_code"],
@@ -364,15 +379,40 @@ onDrop(event, targetFaculty, targetRowIndex, targetCol) {
   const targetRow = facultyRows[targetRowIndex];
   if (!sourceRow || !targetRow) return;
 
-  // Swap the values of that column
-const colsToSwap = this.linkedColumns()[targetCol] || [targetCol.toLowerCase().replace(" ", "_")];
-colsToSwap.forEach(colKey => {
-  const key = colKey.toLowerCase().replace(" ", "_");
-  [sourceRow[key], targetRow[key]] = [targetRow[key], sourceRow[key]];
-});
+  // Save action for undo
+  this.actionHistory.push({
+    type: "drag",
+    affectedRows: [
+      { id: sourceRow.id, prevValue: { ...sourceRow } },
+      { id: targetRow.id, prevValue: { ...targetRow } }
+    ]
+  });
 
+  // Swap column values
+  const colsToSwap = this.linkedColumns()[targetCol] || [targetCol.toLowerCase().replace(" ", "_")];
+  colsToSwap.forEach(colKey => {
+    const key = colKey.toLowerCase().replace(" ", "_");
+    [sourceRow[key], targetRow[key]] = [targetRow[key], sourceRow[key]];
+    [sourceRow.faculty, targetRow.faculty] = [targetRow.faculty, sourceRow.faculty];
+[sourceRow.time, targetRow.time] = [targetRow.time, sourceRow.time];
+[sourceRow.classroom, targetRow.classroom] = [targetRow.classroom, sourceRow.classroom];
 
-  // Force reactivity
+  });
+
+  // ✅ Update usedSlots and usedRooms for both affected subjects
+  [sourceRow, targetRow].forEach(s => {
+    if (s.faculty && s.faculty !== "Unknown") {
+      this.markUsedSlotAndRoom(
+        s.faculty_id || s.assigned_faculty_id,
+        s.room_id || s.assigned_room_id,
+        s.time || s.assigned_time
+      );
+    }
+  });
+
+  // ✅ Refresh suggestions so no conflicting assignment remains
+  this.refreshAISuggestions();
+
   this.pendingSchedules = [...this.pendingSchedules];
   this.dragData = null;
 }
@@ -443,23 +483,29 @@ onSubjectDropped(event) {
 
 // ✅ Helper to re-filter possible_assignments per faculty (local only)
 getFilteredAssignmentsForFaculty(originalAssignments, facultyName) {
-  // Get all current schedules for that faculty
   const currentFacultySchedules = this.pendingSchedules.filter(
-    (s) => s.faculty === facultyName
+    s => s.faculty === facultyName
   );
 
-  // Filter out overlaps/conflicts for that faculty
-  return originalAssignments.filter((a) => {
-    const conflicts = currentFacultySchedules.some((s) => {
-      return (
-        s.time === a.time_slot ||
-        s.classroom === a.room ||
-        s.course_section === a.course_section
-      );
+  return originalAssignments.filter(a => {
+    const aSlot = this.normalizeSlotLabel(a.time_slot || a.time);
+
+    // Faculty conflict: same faculty + overlapping time (ignore room)
+    const facultyConflict = currentFacultySchedules.some(s => {
+      if (!s.time) return false;
+      return this.slotLabelsOverlap(s.time, aSlot);
     });
-    return !conflicts;
+
+    // Room conflict: same room + overlapping time
+    const roomConflict = this.pendingSchedules.some(s => {
+      if (!s.classroom || !s.time) return false;
+      return s.classroom === a.room && this.slotLabelsOverlap(s.time, aSlot);
+    });
+
+    return !facultyConflict && !roomConflict;
   });
-},
+}
+,
 
 // Optional drag handlers (keep if you already use them)
 handleDragStart(facultyName, event) {
@@ -489,19 +535,53 @@ isEditingCell(faculty, row, col) {
          this.editableCell.col === col;
 },
 
-    saveEdit(faculty, index, col) {
-      const row = this.groupedByFaculty[faculty][index];
-      this.$set(
-        row,
-        col.toLowerCase().replace(" ", "_"),
-        this.editableValue
-      );
-      this.editableCell = null;
-      this.editableValue = "";
-    },
-        getFacultyTotal(facultySchedules) {
-      return facultySchedules.reduce((acc, s) => acc + (s.units || 3), 0);
-    },
+     // 3️⃣ Record a manual edit
+  saveEdit(faculty, rowIndex, col) {
+    const key = col.toLowerCase().replace(" ", "_");
+    const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
+    const editedRow = facultyRows[rowIndex];
+    if (!editedRow) return;
+
+    // Save previous value
+    this.actionHistory.push({
+      type: "edit",
+      subjectId: editedRow.id,
+      prevValue: editedRow[key]
+    });
+
+    editedRow[key] = this.editableValue;
+    this.editableCell = null;
+    this.editableValue = "";
+    this.pendingSchedules = [...this.pendingSchedules];
+  },
+  // 4️⃣ Undo function
+  undoLastAction() {
+    if (!this.actionHistory.length) return alert("Nothing to undo!");
+
+    const lastAction = this.actionHistory.pop();
+
+    if (lastAction.type === "assign") {
+      const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
+      if (!target) return;
+      Object.assign(target, lastAction.prevState);
+      this.refreshAISuggestions();
+
+    } else if (lastAction.type === "drag") {
+      lastAction.affectedRows.forEach(row => {
+        const target = this.pendingSchedules.find(s => s.id === row.id);
+        if (target) Object.assign(target, row.prevValue);
+      });
+
+    } else if (lastAction.type === "edit") {
+      const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
+      if (target) {
+        const key = this.editableCell?.col.toLowerCase().replace(" ", "_") || "";
+        if (key) target[key] = lastAction.prevValue;
+      }
+    }
+
+    this.pendingSchedules = [...this.pendingSchedules];
+  },
     parseSlotLabel(label) {
   if (!label || typeof label !== 'string') return null;
   try {
@@ -857,7 +937,16 @@ markUsedSlotAndRoom(facultyId, roomId, slotLabel) {
 assignSuggestion(subjectId, assignment) {
   const target = this.pendingSchedules.find(s => s.id === subjectId);
   if (!target) return;
-
+   this.actionHistory.push({
+      type: "assign",
+      subjectId,
+      prevState: {
+        faculty: target.faculty,
+        classroom: target.classroom,
+        time: target.time,
+        assigned_suggestion: target.assigned_suggestion
+      }
+    });
   // Apply assignment
   target.faculty = assignment.faculty_name || assignment.faculty;
   target.classroom = assignment.room_name || assignment.classroom;
@@ -1024,7 +1113,18 @@ refreshAISuggestions() {
   }
 },
 
-    async saveChanges(){ if(!this.selectedBatch) return alert("No batch selected."); if(!this.pendingSchedules.length) return alert("No schedules to save."); this.show(); try{ const schedulesToSave=this.pendingSchedules.map(s=>({ id:s.id, subject_code:s.subject_code, subject:s.subject, time:s.time, classroom:s.classroom, course_section:s.course_section, units:Number(s.units), faculty:s.faculty })); const res=await fetch(`/api/pending-schedules/${this.selectedBatch}/update`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({schedules:schedulesToSave})}); const data=await res.json(); if(data.success){ alert("✅ Changes saved successfully!"); this.loadPendingSchedules(); this.showModal=false; this.editMode=false; this.editableCell=null; this.editableValue=""; }else alert("❌ Failed to save changes: "+data.message); }catch(err){console.error(err); alert("Error saving schedule changes.");}finally{this.hide();}},
+    async saveChanges(){ if(!this.selectedBatch) return alert("No batch selected."); if(!this.pendingSchedules.length) return alert("No schedules to save."); this.show(); try{ const schedulesToSave = this.pendingSchedules.map(s => ({
+    id: s.id,
+    subject_code: s.subject_code,
+    subject: s.subject,
+    time: s.time,
+    classroom: s.classroom,
+    course_section: s.course_section,
+    units: Number(s.units),
+    faculty: s.faculty,
+    payload: s.payload || {} // ensure it's an object
+}));
+ const res=await fetch(`/api/pending-schedules/${this.selectedBatch}/update`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({schedules:schedulesToSave})}); const data=await res.json(); if(data.success){ alert("✅ Changes saved successfully!"); this.loadPendingSchedules(); this.showModal=false; this.editMode=false; this.editableCell=null; this.editableValue=""; }else alert("❌ Failed to save changes: "+data.message); }catch(err){console.error(err); alert("Error saving schedule changes.");}finally{this.hide();}},
   }
 };
 </script>

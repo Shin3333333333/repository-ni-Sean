@@ -205,11 +205,21 @@ public function updateBatch(Request $request, $batchId)
                 ];
 
                 // If frontend included possible_assignments or payload, persist it to payload column if present
-                if (isset($sched['possible_assignments']) && Schema::hasColumn('pending_schedules', 'payload')) {
-                    $updateData['payload'] = json_encode(['possible_assignments' => $sched['possible_assignments']]);
-                } elseif (isset($sched['payload']) && Schema::hasColumn('pending_schedules', 'payload')) {
-                    $updateData['payload'] = is_array($sched['payload']) ? json_encode($sched['payload']) : $sched['payload'];
+                            if (Schema::hasColumn('pending_schedules', 'payload')) {
+                $existing = DB::table('pending_schedules')->where('id', $sched['id'])->value('payload');
+                $existingPayload = is_string($existing) ? json_decode($existing, true) : ($existing ?? []);
+
+                if (isset($sched['possible_assignments'])) {
+                    $existingPayload['possible_assignments'] = $sched['possible_assignments'];
                 }
+
+                if (isset($sched['payload']) && is_array($sched['payload'])) {
+                    $existingPayload = array_merge($existingPayload, $sched['payload']);
+                }
+
+                $updateData['payload'] = json_encode($existingPayload);
+            }
+
 
                 DB::table('pending_schedules')
                     ->where('id', $sched['id'])
