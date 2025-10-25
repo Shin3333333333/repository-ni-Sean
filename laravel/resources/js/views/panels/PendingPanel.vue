@@ -354,32 +354,65 @@ totalConflicts() {
 
   },
   methods: { 
+    checkAssignmentConflict(newAssignment) {
+  const newSlot = this.normalizeSlotLabel(newAssignment.time_slot_label || newAssignment.time);
+  if (!newSlot) return false;
+
+  const newRoom = newAssignment.room_id || newAssignment.room_name;
+  const newFaculty = newAssignment.faculty_id || newAssignment.faculty_name;
+
+  for (const s of this.pendingSchedules) {
+    // skip same subject
+    if (s.id === newAssignment.id) continue;
+
+    // check if subject is already assigned (AI or manual)
+    const slot = this.normalizeSlotLabel(s.assigned_time || s.time);
+    const room = s.assigned_room_id || s.room_id || s.classroom;
+    const fac = s.assigned_faculty_id || s.faculty_id || s.faculty;
+
+    if (!slot || !room || !fac) continue;
+
+    // ✅ Faculty time overlap
+    if (String(fac) === String(newFaculty) && this.slotLabelsOverlap(slot, newSlot)) {
+      console.warn("❌ Faculty overlap detected:", s.subject, s.time);
+      return true;
+    }
+
+    // ✅ Room time overlap
+    if (String(room) === String(newRoom) && this.slotLabelsOverlap(slot, newSlot)) {
+      console.warn("❌ Room overlap detected:", s.subject, s.time);
+      return true;
+    }
+  }
+
+  return false;
+}
+,
 
       linkedColumns() {
     return {
-      "Subject": ["subject", "subject_code"],
-      "Subject Code": ["subject_code", "subject"],
+      "Subject": ["subject", "subject_code", "course_section"],
+      "Subject Code": ["subject_code", "course_section", "subject"],
+      "Course Section": ["course_section","subject_code", "subject"],
     };
   },// Start dragging a cell/subject
  // Drag start
 startDrag(event, subject, col) {
-  this.dragData = { sourceId: subject.id, col }; // ✅ subject.id is correct
+  if (!this.editMode) return; // block drag if not in edit mode
+  this.dragData = { sourceId: subject.id, col };
   event.dataTransfer.effectAllowed = "move";
-}
-,
+},
 // Drop handler
 onDrop(event, targetFaculty, targetRowIndex, targetCol) {
   if (!this.dragData) return;
 
   const { sourceId, col: sourceCol } = this.dragData;
-  if (sourceCol !== targetCol) return;
-
   const sourceRow = this.pendingSchedules.find(s => s.id === sourceId);
   const facultyRows = this.pendingSchedules.filter(s => s.faculty === targetFaculty);
   const targetRow = facultyRows[targetRowIndex];
   if (!sourceRow || !targetRow) return;
 
-  // Save action for undo
+  // Save action for undo (capture full prevValue so undo restores everything)
   this.actionHistory.push({
     type: "drag",
     affectedRows: [
@@ -388,51 +421,54 @@ onDrop(event, targetFaculty, targetRowIndex, targetCol) {
     ]
   });
 
-  // Swap column values
-  const colsToSwap = this.linkedColumns()[targetCol] || [targetCol.toLowerCase().replace(" ", "_")];
-  colsToSwap.forEach(colKey => {
+  // Determine which keys to swap based on the column mapping.
+  // But enforce we only ever touch subject identity fields (no time/room/units/faculty)
+  const mapped = this.linkedColumns()[targetCol] || [targetCol.toLowerCase().replace(" ", "_")];
+
+  // Allowed keys to actually swap (subject identity only)
+  const allowedSwapKeys = ["subject", "subject_code", "course_section"];
+
+  // Perform the swap only for allowed keys
+  mapped.forEach(colKey => {
     const key = colKey.toLowerCase().replace(" ", "_");
-    [sourceRow[key], targetRow[key]] = [targetRow[key], sourceRow[key]];
-    [sourceRow.faculty, targetRow.faculty] = [targetRow.faculty, sourceRow.faculty];
-[sourceRow.time, targetRow.time] = [targetRow.time, sourceRow.time];
-[sourceRow.classroom, targetRow.classroom] = [targetRow.classroom, sourceRow.classroom];
-
-  });
-
-  // ✅ Update usedSlots and usedRooms for both affected subjects
-  [sourceRow, targetRow].forEach(s => {
-    if (s.faculty && s.faculty !== "Unknown") {
-      this.markUsedSlotAndRoom(
-        s.faculty_id || s.assigned_faculty_id,
-        s.room_id || s.assigned_room_id,
-        s.time || s.assigned_time
-      );
+    if (allowedSwapKeys.includes(key)) {
+      const tmp = sourceRow[key];
+      sourceRow[key] = targetRow[key];
+      targetRow[key] = tmp;
     }
   });
 
-  // ✅ Refresh suggestions so no conflicting assignment remains
+  // IMPORTANT: Do NOT swap time / classroom / units / faculty.
+  // If you *want* the dragged subject to become visually in the other faculty row,
+  // do NOT change `faculty`, `time`, `classroom`, or `units` here. We intentionally leave them.
+
+  // If either row has possible_assignments or assigned_suggestion, keep them consistent:
+  // we swap possible assignment references for those identity fields so suggestions remain tied.
+  if (allowedSwapKeys.some(k => mapped.map(m=>m.toLowerCase().replace(" ", "_")).includes(k))) {
+    // swap assigned_suggestion references if present, so 'Assigned suggestion' follows the subject identity
+    const tmpAssigned = sourceRow.assigned_suggestion;
+    sourceRow.assigned_suggestion = targetRow.assigned_suggestion;
+    targetRow.assigned_suggestion = tmpAssigned;
+
+    // swap possible_assignments arrays so the subject options travel with subject identity
+    const tmpPossible = sourceRow.possible_assignments;
+    sourceRow.possible_assignments = targetRow.possible_assignments;
+    targetRow.possible_assignments = tmpPossible;
+
+    // also swap _original_possible_assignments if present
+    const tmpOrig = sourceRow._original_possible_assignments;
+    sourceRow._original_possible_assignments = targetRow._original_possible_assignments;
+    targetRow._original_possible_assignments = tmpOrig;
+  }
+
+  // Re-run suggestion refresh so UI updates and conflicts get recalculated
   this.refreshAISuggestions();
 
+  // trigger reactivity
   this.pendingSchedules = [...this.pendingSchedules];
   this.dragData = null;
 }
-,
 
-  // Optional: allow moving a row to another faculty
- moveSubjectToFaculty(subjectId, newFaculty) {
-  const subjectIndex = this.pendingSchedules.findIndex(s => s.id === subjectId);
-  if (subjectIndex === -1) return;
-
-  this.pendingSchedules[subjectIndex].faculty = newFaculty;
-
-  // Optional: recalc possible_assignments
-  this.pendingSchedules[subjectIndex].possible_assignments = this.getFilteredAssignmentsForFaculty(
-    this.pendingSchedules[subjectIndex]._original_possible_assignments,
-    newFaculty
-  );
-
-  this.pendingSchedules = [...this.pendingSchedules];
-}
 ,
 onSubjectDropped(event) {
   const { item, from, to } = event;
@@ -487,14 +523,13 @@ getFilteredAssignmentsForFaculty(originalAssignments, facultyName) {
     s => s.faculty === facultyName
   );
 
-  return originalAssignments.filter(a => {
-    const aSlot = this.normalizeSlotLabel(a.time_slot || a.time);
-
-    // Faculty conflict: same faculty + overlapping time (ignore room)
-    const facultyConflict = currentFacultySchedules.some(s => {
-      if (!s.time) return false;
-      return this.slotLabelsOverlap(s.time, aSlot);
-    });
+return originalAssignments.filter(a => {
+  if (this.checkAssignmentConflict({
+    id: subject.id,
+    faculty_id: a.faculty_id,
+    room_id: a.room_id,
+    time_slot_label: a.time_slot || a.time
+  })) return false;
 
     // Room conflict: same room + overlapping time
     const roomConflict = this.pendingSchedules.some(s => {
@@ -759,14 +794,21 @@ getPossibleAssignments(subject) {
     );
   },
 
-  checkRoomConflict(pa) {
-    return this.pendingSchedules.some(s =>
-      s.classroom === pa.room_name &&
-      s.time &&
-      pa.time &&
-      this.isTimeOverlap(s.time, pa.time)
-    );
-  },
+
+checkRoomConflict(roomIdentifier, slotLabel) {
+  if (!roomIdentifier || !slotLabel) return false;
+  const norm = this.normalizeSlotLabel(slotLabel);
+  if (!norm) return false;
+  for (const key in this.usedRooms) {
+    const parts = key.split("||");
+    const rid = parts[0];
+    const savedLabel = parts.slice(1).join("||");
+    if (String(rid) === String(roomIdentifier) && this.slotLabelsOverlap(savedLabel, norm)) {
+      return true;
+    }
+  }
+  return false;
+},
 
   isTimeOverlap(timeA, timeB) {
     const parse = t => {
@@ -882,10 +924,17 @@ slotLabelsOverlap(aLabel, bLabel) {
   if (!a || !b || a.day !== b.day) return false;
   return this.intervalsOverlap(a.start, a.end, b.start, b.end);
 },
-markUsedSlotAndRoom(facultyId, roomId, slotLabel) {
+markUsedSlotAndRoom(facultyIdentifier, roomIdentifier, slotLabel) {
+  // Use a safe separator that won't appear in names: '||'
   const norm = this.normalizeSlotLabel(slotLabel);
-  if (facultyId) this.usedSlots[`${facultyId}|${norm}`] = true;
-  if (roomId) this.usedRooms[`${roomId}|${norm}`] = true;
+  if (!norm) return;
+  if (facultyIdentifier) {
+    // stringify so both IDs and names work uniformly
+    this.usedSlots[`${String(facultyIdentifier)}||${norm}`] = true;
+  }
+  if (roomIdentifier) {
+    this.usedRooms[`${String(roomIdentifier)}||${norm}`] = true;
+  }
 },
 
     suggestionFlags(pa, subject) {
@@ -902,12 +951,16 @@ markUsedSlotAndRoom(facultyId, roomId, slotLabel) {
       return { deptMatch, willExceed, underload, conflictsExistingSlot, conflictsExistingRoom };
     },
     
-   checkSlotConflict(facultyId, slotLabel) {
-  if (!facultyId || !slotLabel) return false;
+
+checkSlotConflict(facultyIdentifier, slotLabel) {
+  if (!facultyIdentifier || !slotLabel) return false;
   const norm = this.normalizeSlotLabel(slotLabel);
+  if (!norm) return false;
   for (const key in this.usedSlots) {
-    const [fid, savedLabel] = key.split("|");
-    if (String(fid) === String(facultyId) && this.slotLabelsOverlap(savedLabel, norm)) {
+    const parts = key.split("||");
+    const fid = parts[0];
+    const savedLabel = parts.slice(1).join("||"); // join back in case separator appears in label
+    if (String(fid) === String(facultyIdentifier) && this.slotLabelsOverlap(savedLabel, norm)) {
       return true;
     }
   }
@@ -935,19 +988,29 @@ markUsedSlotAndRoom(facultyId, roomId, slotLabel) {
     },
 // --- FIXED ASSIGNMENT FLOW ---
 assignSuggestion(subjectId, assignment) {
+  if (!this.editMode) return alert("Enable Edit mode to assign subjects.");
+
   const target = this.pendingSchedules.find(s => s.id === subjectId);
-  if (!target) return;
-   this.actionHistory.push({
-      type: "assign",
-      subjectId,
-      prevState: {
-        faculty: target.faculty,
-        classroom: target.classroom,
-        time: target.time,
-        assigned_suggestion: target.assigned_suggestion
-      }
-    });
-  // Apply assignment
+  if (!target || (target.faculty && target.faculty !== 'Unknown')) return;
+
+  const conflict = this.checkAssignmentConflict({
+    id: subjectId,
+    faculty_id: assignment.faculty_id,
+    room_id: assignment.room_id,
+    time_slot_label: assignment.time_slot_label || assignment.time,
+  });
+
+  if (conflict) {
+    alert("❌ Conflict detected: This faculty or room already has an overlapping schedule!");
+    return;
+  }
+
+  this.actionHistory.push({
+    type: "assign",
+    subjectId,
+    prevState: { faculty: target.faculty, classroom: target.classroom, time: target.time }
+  });
+
   target.faculty = assignment.faculty_name || assignment.faculty;
   target.classroom = assignment.room_name || assignment.classroom;
   target.time = assignment.time_slot_label || assignment.time;
@@ -956,37 +1019,16 @@ assignSuggestion(subjectId, assignment) {
   const units = target.units || 3;
   assignment.faculty_current_load = (assignment.faculty_current_load || 0) + units;
 
-  // Mark faculty and room as used
   this.markUsedSlotAndRoom(assignment.faculty_id, assignment.room_id, assignment.time_slot_label || assignment.time);
-
-  // Filter out overlapping/conflicting options for SAME faculty or SAME room
-  this.pendingSchedules.forEach(s => {
-    if (s.faculty && s.faculty !== 'Unknown') return;
-
-    let list = s.possible_assignments || s.payload?.possible_assignments || [];
-    if (!Array.isArray(list)) return;
-
-    list = list.filter(pa => {
-      const overlaps = this.slotLabelsOverlap(pa.time_slot_label || pa.time, assignment.time_slot_label || assignment.time);
-      const sameFaculty = pa.faculty_id && String(pa.faculty_id) === String(assignment.faculty_id);
-      const sameRoom = pa.room_id && String(pa.room_id) === String(assignment.room_id);
-      return !((sameFaculty && overlaps) || (sameRoom && overlaps));
-    });
-
-    if (s.possible_assignments) s.possible_assignments = list;
-    if (s.payload?.possible_assignments) s.payload.possible_assignments = list;
-  });
-
-  // Refresh all remaining unassigned suggestions for valid re-evaluation
   this.refreshAISuggestions();
 },
-
 
 // --- FIXED RE-EVALUATION LOGIC ---
 refreshAISuggestions() {
   const facultyLimit = 2; // max 2 suggestions per faculty
 
   for (const s of this.pendingSchedules) {
+    // skip assigned subjects
     if (s.faculty && s.faculty !== 'Unknown') continue;
 
     const allOpts = s._original_possible_assignments || s.possible_assignments || [];
@@ -994,9 +1036,30 @@ refreshAISuggestions() {
 
     allOpts.forEach(opt => {
       const slot = opt.time_slot_label || opt.time;
-      if (this.checkSlotConflict(opt.faculty_id, slot)) return;
-      if (this.checkRoomConflict(opt.room_id, slot)) return;
 
+      // ✅ Filter out any option that overlaps with existing assignments (AI or manual)
+      const conflict = this.pendingSchedules.some(ps => {
+        if (ps.id === s.id) return false;
+        if (!ps.faculty || !ps.time || !ps.classroom) return false;
+
+        const psSlot = this.normalizeSlotLabel(ps.time);
+        const optSlot = this.normalizeSlotLabel(slot);
+        const sameDayOverlap = this.slotLabelsOverlap(psSlot, optSlot);
+
+        return (
+          sameDayOverlap &&
+          (
+            ps.faculty_id === opt.faculty_id ||           // same faculty
+            ps.faculty === opt.faculty_name ||            // or same faculty name
+            ps.classroom === opt.room_name ||             // or same room
+            ps.room_id === opt.room_id
+          )
+        );
+      });
+
+      if (conflict) return; // ❌ skip conflicting assignment
+
+      // continue normal scoring
       const fid = opt.faculty_id || `name-${opt.faculty_name}`;
       if (!byFaculty[fid]) byFaculty[fid] = [];
 
@@ -1044,7 +1107,7 @@ refreshAISuggestions() {
     toggleEditMode(){ this.editMode=!this.editMode; this.editableCell=null; if(this.editMode) alert("✅ You can drag or double-click to edit cells."); },
     saveEdit(faculty,row,col){ const key=col.toLowerCase().replace(" ","_"); const facultyRows=this.pendingSchedules.filter(s=>s.faculty===faculty); const editedRow=facultyRows[row]; if(!editedRow) return; editedRow[key]=this.editableValue; this.editableCell=null; this.editableValue=""; this.pendingSchedules=[...this.pendingSchedules]; },
     async loadPendingSchedules(){ this.show(); try{ const res=await fetch("/api/pending-schedules"); const data=await res.json(); this.batchList=data.pending||data.batches||[]; } catch(err){ console.error(err); alert("Failed to load pending schedules."); } finally{ this.hide(); } },
-   async openBatch(batchId) {
+async openBatch(batchId) {
   this.selectedBatch = batchId;
   this.show();
 
@@ -1052,56 +1115,110 @@ refreshAISuggestions() {
     const res = await fetch(`/api/pending-schedules/${batchId}`);
     const data = await res.json();
 
-    let grouped = [], unassigned = [];
+    let grouped = [];
+    let unassigned = [];
 
     if (data.grouped || data.unassigned) {
       grouped = Object.values(data.grouped || {}).flat();
       unassigned = data.unassigned || [];
+    }
 
-      this.pendingSchedules = [
-        ...grouped.map(s => {
-          const baseAssignments = s.possible_assignments?.length
-            ? s.possible_assignments
-            : s.payload?.possible_assignments || [];
+    // --- Build full pendingSchedules list ---
+    this.pendingSchedules = [
+      ...grouped.map(s => {
+        const baseAssignments = s.possible_assignments?.length
+          ? s.possible_assignments
+          : s.payload?.possible_assignments || [];
 
-          return {
-            id: s._localId || s.id || `${s.courseCode || s.subject}-${Math.random()}`,
-            subject_code: s.courseCode || s.course_code || "",
-            faculty: s.faculty || s.faculty_name || "Unknown",
-            subject: s.subject || s.subject_title || "Untitled",
-            time: s.time || s.time_slot || "",
-            classroom: s.classroom || s.room_name || s.room || "",
-            course_section: s.courseSection || s.course_section || "",
-            units: Number(s.units || 0),
-            payload: s.payload || null,
-            possible_assignments: [...baseAssignments], // ✅ Keep visible
-            _original_possible_assignments: [...baseAssignments], // ✅ Preserve for refresh
-          };
-        })
-      ];
-
-      unassigned.forEach(u => {
+        return {
+          id: s._localId || s.id || `${s.courseCode || s.subject}-${Math.random()}`,
+          subject_code: s.courseCode || s.course_code || "",
+          faculty: s.faculty || s.faculty_name || "Unknown",
+          assigned_faculty_id: s.assigned_faculty_id || s.faculty_id || null,
+          assigned_room_id: s.assigned_room_id || s.room_id || null,
+          subject: s.subject || s.subject_title || "Untitled",
+          time: s.time || s.time_slot || s.time_slot_label || "",
+          classroom: s.classroom || s.room_name || s.room || "",
+          course_section: s.courseSection || s.course_section || "",
+          units: Number(s.units || 0),
+          payload: s.payload || null,
+          possible_assignments: [...baseAssignments],
+          _original_possible_assignments: [...baseAssignments],
+        };
+      }),
+      ...unassigned.map(u => {
         const derivedOptions = u.possible_assignments || u.payload?.possible_assignments || [];
 
-        this.pendingSchedules.push({
+        return {
           id: u._localId || u.id || `${u.subject_code || u.subject}-${Math.random()}`,
           subject_code: u.course_code || u.CourseCode || "",
           faculty: u.faculty || "Unknown",
+          assigned_faculty_id: u.assigned_faculty_id || u.faculty_id || null,
+          assigned_room_id: u.assigned_room_id || u.room_id || null,
           subject: u.subject_display || u.subject_title || u.subject || "Untitled",
           time: u.time || u.time_slot_label || "",
           classroom: u.classroom || u.room_name || "",
           course_section: u.course_section || u.courseSection || "",
           units: Number(u.units || 0),
           payload: u.payload || null,
-          possible_assignments: [...derivedOptions], // ✅ Keep visible
-          _original_possible_assignments: [...derivedOptions], // ✅ Preserve for filtering later
-        });
+          possible_assignments: [...derivedOptions],
+          _original_possible_assignments: [...derivedOptions],
+        };
+      }),
+    ];
+
+    // --- Reset and rebuild used slots/rooms from existing assignments ---
+    this.usedSlots = {};
+    this.usedRooms = {};
+
+    const findIdsForAssigned = (s) => {
+      // prefer explicit IDs
+      if (s.assigned_faculty_id || s.assigned_room_id) {
+        return {
+          facultyIdentifier: s.assigned_faculty_id || s.faculty || null,
+          roomIdentifier: s.assigned_room_id || s.classroom || null,
+          slot: s.time || s.time_slot_label || "",
+        };
+      }
+
+      // else match against original possible assignments
+      const arr = s._original_possible_assignments || s.possible_assignments || [];
+      const match = arr.find(opt => {
+        const slot = opt.time_slot_label || opt.time || "";
+        const roomName = opt.room_name || opt.room || opt.room_id || "";
+        const facultyName = opt.faculty_name || opt.faculty || "";
+        return (
+          (s.time && this.slotLabelsOverlap(s.time, slot)) &&
+          (s.classroom && String(s.classroom).toLowerCase() === String(roomName).toLowerCase()) &&
+          (s.faculty && String(s.faculty).toLowerCase() === String(facultyName).toLowerCase())
+        );
       });
+
+      if (match) {
+        return {
+          facultyIdentifier: match.faculty_id || match.faculty_name || s.faculty || null,
+          roomIdentifier: match.room_id || match.room_name || s.classroom || null,
+          slot: match.time_slot_label || match.time || s.time || "",
+        };
+      }
+
+      // fallback to names
+      return {
+        facultyIdentifier: s.faculty || null,
+        roomIdentifier: s.classroom || null,
+        slot: s.time || "",
+      };
+    };
+
+    for (const s of this.pendingSchedules) {
+      if (s.faculty && s.faculty !== "Unknown" && (s.time || s.classroom)) {
+        const { facultyIdentifier, roomIdentifier, slot } = findIdsForAssigned(s);
+        if (slot) this.markUsedSlotAndRoom(facultyIdentifier, roomIdentifier, slot);
+      }
     }
 
+    // --- Finalize modal and refresh AI suggestions ---
     this.showModal = true;
-
-    // ✅ Important: Run suggestion refresh *after* the data is fully populated
     this.refreshAISuggestions();
     this.$forceUpdate();
 
@@ -1112,6 +1229,7 @@ refreshAISuggestions() {
     this.hide();
   }
 },
+
 
     async saveChanges(){ if(!this.selectedBatch) return alert("No batch selected."); if(!this.pendingSchedules.length) return alert("No schedules to save."); this.show(); try{ const schedulesToSave = this.pendingSchedules.map(s => ({
     id: s.id,
