@@ -126,14 +126,16 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         SELECT 
             s.id AS subject_id,
             s.subject_title,
-            s.units,
-            s.semester_id,
+            s.subject_code,
             s.course_id,
             s.year_level,
+            s.semester_id,
+            s.lec_units,
+            s.lab_units,
+            s.total_units,
             c.name AS course_name,
             c.year AS course_year,
-            f.name AS faculty_name,
-            s.subject_code
+            f.name AS faculty_name
         FROM subjects s
         LEFT JOIN courses c ON s.course_id = c.id
         LEFT JOIN professors f ON f.department = c.name
@@ -145,17 +147,23 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     cursor.execute(subject_query, params)
     subjects_rows = cursor.fetchall() or []
 
+
     # Normalize subjects as before
     subjects = []
     for r in subjects_rows:
         norm = dict(r)
         if 'subject_id' in norm:
-            norm['id'] = norm['subject_id']
-            norm.pop('subject_id', None)
+            norm['id'] = norm.pop('subject_id')
+        norm['lec_units'] = int(norm.get('lec_units') or 0)
+        norm['lab_units'] = int(norm.get('lab_units') or 0)
+        norm['units'] = int(norm.get('total_units') or (
+            norm['lec_units'] + norm['lab_units']
+        ))
         norm['subject_code'] = norm.get('subject_code') or ''
         course_obj = course_by_id.get(norm.get('course_id'))
         norm['course_name'] = course_obj.get('name') if course_obj else None
         subjects.append(norm)
+
 
     # Only include subjects with valid course_id
     curriculum_subjects = [
@@ -321,11 +329,35 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                             continue
                     except Exception:
                         pass
+
+                # --- 🔍 Enforce Lecture/Laboratory rule ---
+                room_name = (r.get('name') or "").lower()
+                lec_units = subj.get('lec_units', None)
+                lab_units = subj.get('lab_units', None)
+
+                # Normalize numeric values
+                try:
+                    lab_units_val = float(lab_units or 0)
+                    lec_units_val = float(lec_units or 0)
+                except Exception:
+                    lab_units_val = lec_units_val = 0
+
+                if lab_units_val > 0:
+                    # Must be a laboratory room
+                    if "lab" not in room_name and "laboratory" not in room_name:
+                        continue
+                elif lec_units_val > 0 or lab_units_val == 0:
+                    # Must be a lecture room
+                    if "lab" in room_name or "laboratory" in room_name:
+                        continue
+
+                # --- Continue to time slot assignment ---
                 for t in time_slots:
                     if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                         continue
                     allowed_combos[(sid, fid, rid, t)] = True
                     combos_by_subject[sid].append((fid, rid, t))
+
 
         if not combos_by_subject[sid]:
             if not faculty_candidates:
@@ -557,7 +589,13 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     faculty_assignment_units = defaultdict(int)
     for a in assigned:
         fid = a.get('faculty_id')
-        faculty_assignment_units[fid] += a.get('units', 0)
+       # Safely calculate total units for this subject
+        lec = a.get('lec_units') or 0
+        lab = a.get('lab_units') or 0
+        total = a.get('units') or (lec + lab)
+
+        faculty_assignment_units[fid] += total
+
         
     for fid, units in faculty_assignment_units.items():
         fobj = next((f for f in faculty if f.get('id') == fid), None)
@@ -665,7 +703,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if rid:
                 occupied_slots_by_room[rid].add(t)
 
-    top_per_faculty = 10
+    top_per_faculty = 50
     heap_counter = itertools.count()
 
     # Iterate through unassigned subjects

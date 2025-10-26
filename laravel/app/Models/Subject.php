@@ -13,10 +13,11 @@ class Subject extends Model
         'semester_id',
         'subject_code',
         'subject_title',
-        'units',
-        'hours',
+        'lec_units',
+        'lab_units',
+        'total_units',
         'pre_requisite',
-        'type'
+      
     ];
 
     public function curriculum()

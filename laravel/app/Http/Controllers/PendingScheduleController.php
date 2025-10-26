@@ -60,7 +60,7 @@ public function show($batch_id)
             $isUnassigned = true;
         }
 
-        // Prepare schedule item
+        // ✅ Add academicYear and semester here
         $item = [
             'id' => $p->id,
             'faculty' => $p->faculty,
@@ -70,6 +70,8 @@ public function show($batch_id)
             'course_code' => $p->course_code,
             'course_section' => $p->course_section,
             'units' => $p->units,
+            'academicYear' => $p->academicYear,  // ✅ Added
+            'semester' => $p->semester,          // ✅ Added
             'payload' => $payload,
             'possible_assignments' => $possibleAssignments,
             'possible_assignments_count' => $possibleCount,
@@ -91,6 +93,7 @@ public function show($batch_id)
         'unassigned' => $unassigned,
     ]);
 }
+
 
 public function destroy($batch_id)
 {

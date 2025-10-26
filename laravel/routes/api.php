@@ -11,7 +11,8 @@ use App\Http\Controllers\{
     RoomsController,
     CurriculumController,
     ScheduleController,
-    PendingScheduleController
+    PendingScheduleController,
+    FinalizedScheduleController
 };
 
 /*
@@ -72,3 +73,9 @@ Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, '
 Route::put('/pending-schedules/{batchId}/update', [PendingScheduleController::class, 'updateBatch']);
 Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
 Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);
+
+// Finalized schedules
+Route::post('/finalized-schedules', [FinalizedScheduleController::class, 'saveFinalizedSchedule']);
+Route::get('/finalized-schedules', [FinalizedScheduleController::class, 'index']); // optional
+Route::get('/finalized-schedules/{batch_id}', [FinalizedScheduleController::class, 'show']); // optional
+Route::delete('/finalized-schedules/{batch_id}', [FinalizedScheduleController::class, 'destroy']); // optional

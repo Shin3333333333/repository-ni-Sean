@@ -1089,110 +1089,119 @@ undoLastAssignment() {
     },
 
     // Save current schedule (groupedSchedules + unassigned) as pending or finalized
-    async saveSchedule(mode = 'pending') {
-      if (!this.academicYear) return this.showError('Please set Academic Year before saving.');
-      const payload = {
-        academicYear: this.academicYear,
-        semester: this.semester,
-        mode,
-        grouped: Object.entries(this.groupedSchedules).reduce((arr, [faculty, entries]) => {
-          entries.forEach(e => arr.push({ ...e, faculty }));
-          return arr;
-        }, []),
-        unassigned: this.unassigned || []
-      };
+async saveSchedule(mode = 'pending') {
+  if (!this.academicYear) return this.showError('Please set Academic Year before saving.');
 
-      this.show();
-      try {
-        // Laravel controller expects POST /api/save-schedule with body { schedule: [...] }
-        const url = `${this.apiBase}/save-schedule`;
+  // Prevent finalizing if there are still unassigned subjects
+  if (mode === 'finalized' && (this.unassigned || []).length > 0) {
+    return this.showError('Cannot finalize schedule: there are still unassigned subjects.');
+  }
 
-        // Build schedule array: flatten grouped rows + unassigned items into the expected shape
-        const scheduleArray = [];
-        (payload.grouped || []).forEach(r => {
-          scheduleArray.push({
-            faculty: r.faculty || r.faculty_name || null,
-            subject: r.subject || r.subject_title || null,
-            time: r.time || r.time_slot || null,
-            classroom: r.classroom || r.room_name || r.room || null,
-            course_code: r.courseCode || r.course_code || null,
-            course_section: r.courseSection || r.course_section || null,
-            units: Number(r.units || 0),
-            academicYear: payload.academicYear,
-            semester: payload.semester,
-            status: mode === 'finalized' ? 'finalized' : 'pending',
-          });
+  // Helper to build schedule array
+  const buildScheduleArray = (payload, includeUnassigned = false) => {
+    const arr = [];
+    (Object.entries(this.groupedSchedules) || []).forEach(([faculty, entries]) => {
+      entries.forEach(r => {
+        arr.push({
+          faculty: r.faculty || r.faculty_name || null,
+          subject: r.subject || r.subject_title || null,
+          time: r.time || r.time_slot || null,
+          classroom: r.classroom || r.room_name || r.room || null,
+          course_code: r.courseCode || r.course_code || null,
+          course_section: r.courseSection || r.course_section || null,
+          units: Number(r.units || 0),
+          academicYear: this.academicYear,
+          semester: this.semester,
+          status: mode === 'finalized' ? 'finalized' : 'pending',
+          batch_id: this.selectedBatch || null,
         });
-        (payload.unassigned || []).forEach(u => {
-          scheduleArray.push({
-            faculty: u.faculty || u.faculty_name || null,
-            subject: u.subject_display || u.subject_title || u.subject || null,
-            time: u.time || u.time_slot_label || null,
-            classroom: u.classroom || u.room_name || u.room || null,
-            course_code: u.course_code || u.courseCode || u.subject_code || null,
-            course_section: u.course_section || u.courseSection || null,
-            units: Number(u.units || 0),
-            academicYear: payload.academicYear,
-            semester: payload.semester,
-            status: mode === 'finalized' ? 'finalized' : 'pending',
-            // attach original unassigned possible_assignments so backend can persist suggestions
-            possible_assignments: u.possible_assignments || u.possible_assignments_original || [],
-            payload: u, // keep original for debugging if needed
-          });
+      });
+    });
+
+    if (includeUnassigned) {
+      (this.unassigned || []).forEach(u => {
+        arr.push({
+          faculty: u.faculty || u.faculty_name || null,
+          subject: u.subject_display || u.subject_title || u.subject || null,
+          time: u.time || u.time_slot_label || null,
+          classroom: u.classroom || u.room_name || u.room || null,
+          course_code: u.course_code || u.courseCode || u.subject_code || null,
+          course_section: u.course_section || u.courseSection || null,
+          units: Number(u.units || 0),
+          academicYear: this.academicYear,
+          semester: this.semester,
+          status: 'pending',
+          possible_assignments: u.possible_assignments || u.possible_assignments_original || [],
+          payload: u,
         });
+      });
+    }
 
-        let res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ schedule: scheduleArray }),
-        });
+    return arr;
+  };
 
-        // If route doesn't accept this POST (405) or other non-ok, try legacy endpoint as fallback
-        if (!res.ok && res.status === 405) {
-          console.warn('Primary save endpoint returned 405, retrying legacy /api/pending-schedules');
-          res = await fetch('/api/pending-schedules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ schedule: scheduleArray }),
-          });
-        }
+  this.show();
+  try {
+    // If finalizing without a batch_id, first save as pending
+    if (mode === 'finalized' && !this.selectedBatch) {
+      const pendingPayload = buildScheduleArray({ grouped: this.groupedSchedules }, true);
+      const pendingRes = await fetch(`${this.apiBase}/save-schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule: pendingPayload }),
+      });
 
-        // If backend returned an error status, show the raw response (often HTML/error page)
-        if (!res.ok) {
-          const text = await res.text();
-          this.showError(`Save failed (${res.status}): ${text.substring(0, 300)}`);
-          console.error('Save failed response:', res.status, text);
-          return;
-        }
-
-        // Try to parse JSON; if the response is HTML (starts with '<'), handle gracefully
-        const contentType = res.headers.get('content-type') || '';
-        let data = null;
-        if (contentType.includes('application/json')) {
-          try { data = await res.json(); } catch (e) { data = null; }
-        } else {
-          // If server returned HTML (starts with '<'), capture a short preview and surface a clearer message
-          const text = await res.text();
-          const preview = text ? text.substring(0, 300) : '';
-          this.showError('Save succeeded but server returned unexpected response (non-JSON). See console for preview.');
-          console.warn('Unexpected non-JSON save response:', preview);
-          return;
-        }
-
-        if (data && data.success) {
-          this.showSuccess(mode === 'pending' ? 'Saved as pending.' : 'Schedule finalized.');
-          if (mode === 'pending' && data.batch_id) this.selectedBatch = data.batch_id;
-        } else {
-          const serverMsg = data && (data.message || data.error) ? (data.message || data.error) : 'Failed to save schedule.';
-          this.showError(serverMsg);
-        }
-      } catch (err) {
-        console.error(err);
-        this.showError('Network error while saving schedule.');
-      } finally {
-        this.hide();
+      if (!pendingRes.ok) {
+        const text = await pendingRes.text();
+        this.showError(`Failed to auto-save pending before finalizing (${pendingRes.status}): ${text.substring(0, 300)}`);
+        return;
       }
-    },
+
+      const pendingData = await pendingRes.json().catch(() => null);
+      if (!pendingData || !pendingData.success || !pendingData.batch_id) {
+        this.showError('Failed to auto-save pending before finalizing.');
+        return;
+      }
+
+      this.selectedBatch = pendingData.batch_id; // now we have a batch_id
+    }
+
+    // Build schedule array for final call
+    const scheduleArray = buildScheduleArray({ grouped: this.groupedSchedules }, mode === 'pending');
+
+    const url = mode === 'finalized' 
+      ? `${this.apiBase}/finalized-schedules` 
+      : `${this.apiBase}/save-schedule`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule: scheduleArray, batch_id: this.selectedBatch }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      this.showError(`Save failed (${res.status}): ${text.substring(0, 300)}`);
+      return;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (data && data.success) {
+      this.showSuccess(mode === 'pending' ? 'Saved as pending.' : 'Schedule finalized.');
+    } else {
+      const serverMsg = data && (data.message || data.error) ? (data.message || data.error) : 'Failed to save schedule.';
+      this.showError(serverMsg);
+    }
+
+  } catch (err) {
+    console.error(err);
+    this.showError('Network error while saving schedule.');
+  } finally {
+    this.hide();
+  }
+}
+
+
   },
 };
 

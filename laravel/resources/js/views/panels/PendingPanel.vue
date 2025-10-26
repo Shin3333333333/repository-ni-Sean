@@ -76,7 +76,7 @@
     <button class="undo-btn" @click="undoLastAction">
       ↩️ Undo Last Action
     </button>
-    <button class="finalize-btn" @click="finalizeBatch">Finalize</button>
+    <button class="finalize-btn" @click="finalizeSchedule()">Finalize</button>
     <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
     <button class="exit-btn" @click="closeModal">Exit</button>
   </div>
@@ -175,73 +175,78 @@
       tag="tbody"
     >
       <template #item="{ element, index }">
-        <tr>
-          <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
-          <td v-if="deleteMode">
-            <input type="checkbox" v-model="selectedRows" :value="element.id" />
-          </td>
+       <tr
+  :class="{ conflict: element.conflict }"
+  :title="element.conflict ? getConflictTooltip(element) : ''"
+>
+  <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
+  <td v-if="deleteMode">
+    <input type="checkbox" v-model="selectedRows" :value="element.id" />
+  </td>
 
-          <!-- Each column individually draggable -->
-          <td
-            v-for="(col, cIndex) in tableColumns"
-            :key="cIndex"
-            draggable="true"
-            @dragstart="startDrag($event, element, col)"
-            @dragover.prevent
-           @drop="onDrop($event, facultyName, index, col)"
-            class="draggable-cell"
-            :class="{ editable: editMode }"
-            @dblclick="enableEdit(facultyName, index, col)"
+  <td
+    v-for="(col, cIndex) in tableColumns"
+    :key="cIndex"
+    draggable="true"
+    @dragstart="startDrag($event, element, col)"
+    @dragover.prevent
+    @drop="onDrop($event, facultyName, index, col)"
+    class="draggable-cell"
+    :class="{ editable: editMode }"
+    @dblclick="enableEdit(facultyName, index, col)"
+  >
+    <input
+      v-if="isEditingCell(facultyName, index, col)"
+      v-model="editableValue"
+      @blur="saveEdit(facultyName, index, col)"
+      @keyup.enter="saveEdit(facultyName, index, col)"
+      class="edit-input"
+      autofocus
+    />
+    <div v-else>
+      <div class="cell-content">
+        <div class="cell-main">
+          {{ element[col.toLowerCase().replace(' ', '_')] }}
+          <span v-if="element.conflict" class="conflict-note">⚠ Conflict</span>
+        </div>
+
+        <!-- Inline suggestions for unassigned subjects (optional) -->
+        <div
+          v-if="col === 'Subject' && element.faculty === 'Unknown' && (element.possible_assignments && element.possible_assignments.length)"
+          class="suggestions-inline"
+        >
+          <div
+            v-for="(sug, si) in element.possible_assignments"
+            :key="si"
+            class="suggestion-row"
           >
-            <input
-              v-if="isEditingCell(facultyName, index, col)"
-              v-model="editableValue"
-              @blur="saveEdit(facultyName, index, col)"
-              @keyup.enter="saveEdit(facultyName, index, col)"
-              class="edit-input"
-              autofocus
-            />
-            <div v-else>
-              <div class="cell-content">
-                <div class="cell-main">{{ element[col.toLowerCase().replace(' ', '_')] }}</div>
-
-                <!-- Inline suggestions for unassigned subjects (optional) -->
-                <div
-                  v-if="col === 'Subject' && element.faculty === 'Unknown' && (element.possible_assignments && element.possible_assignments.length)"
-                  class="suggestions-inline"
-                >
-                  <div
-                    v-for="(sug, si) in element.possible_assignments"
-                    :key="si"
-                    class="suggestion-row"
-                  >
-                    <div class="s-left">
-                      <div class="s-title">{{ sug.faculty_name || sug.faculty || 'Faculty' }}</div>
-                      <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
-                    </div>
-                    <div class="s-right">
-                      <div class="badges">
-                        <span
-                          v-if="element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id))"
-                          class="badge assigned"
-                        >Assigned</span>
-                      </div>
-                      <div class="s-actions">
-                        <button
-                          class="assign-btn small"
-                          @click.stop="assignSuggestion(element.id, sug)"
-                          :disabled="suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
-                        >Assign</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
+            <div class="s-left">
+              <div class="s-title">{{ sug.faculty_name || sug.faculty || 'Faculty' }}</div>
+              <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
+            </div>
+            <div class="s-right">
+              <div class="badges">
+                <span
+                  v-if="element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id))"
+                  class="badge assigned"
+                >Assigned</span>
+              </div>
+              <div class="s-actions">
+                <button
+                  class="assign-btn small"
+                  @click.stop="assignSuggestion(element.id, sug)"
+                  :disabled="suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
+                >Assign</button>
               </div>
             </div>
-          </td>
+          </div>
+        </div>
 
-        </tr>
+      </div>
+    </div>
+  </td>
+</tr>
+
       </template>
     </draggable>
   </table>
@@ -354,191 +359,153 @@ totalConflicts() {
 
   },
   methods: { 
-    checkAssignmentConflict(newAssignment) {
+// --- Finalize schedule ---
+
+checkAssignmentConflict(newAssignment) {
   const newSlot = this.normalizeSlotLabel(newAssignment.time_slot_label || newAssignment.time);
   if (!newSlot) return false;
 
-  const newRoom = newAssignment.room_id || newAssignment.room_name;
-  const newFaculty = newAssignment.faculty_id || newAssignment.faculty_name;
+  // Extract day and time from the slot label
+  const [newDay, newTimeRange] = newSlot.split(" ");
+  const newRoom = newAssignment.room_id || newAssignment.room_name || newAssignment.classroom;
+  const newFaculty = newAssignment.faculty_id || newAssignment.faculty_name || newAssignment.faculty;
 
   for (const s of this.pendingSchedules) {
-    // skip same subject
     if (s.id === newAssignment.id) continue;
 
-    // check if subject is already assigned (AI or manual)
     const slot = this.normalizeSlotLabel(s.assigned_time || s.time);
+    if (!slot) continue;
+
+    const [day, timeRange] = slot.split(" ");
     const room = s.assigned_room_id || s.room_id || s.classroom;
     const fac = s.assigned_faculty_id || s.faculty_id || s.faculty;
 
-    if (!slot || !room || !fac) continue;
+    if (!day || !timeRange || !room || !fac) continue;
 
-    // ✅ Faculty time overlap
-    if (String(fac) === String(newFaculty) && this.slotLabelsOverlap(slot, newSlot)) {
+    // ✅ Compare day first — no conflict if different day
+    if (day !== newDay) continue;
+
+    // ✅ Faculty time overlap on same day
+    if (String(fac) === String(newFaculty) && this.slotLabelsOverlap(timeRange, newTimeRange)) {
       console.warn("❌ Faculty overlap detected:", s.subject, s.time);
       return true;
     }
 
-    // ✅ Room time overlap
-    if (String(room) === String(newRoom) && this.slotLabelsOverlap(slot, newSlot)) {
+    // ✅ Room time overlap on same day
+    if (String(room) === String(newRoom) && this.slotLabelsOverlap(timeRange, newTimeRange)) {
       console.warn("❌ Room overlap detected:", s.subject, s.time);
       return true;
     }
   }
 
   return false;
-}
-,
+},
 
-      linkedColumns() {
-    return {
-      "Subject": ["subject", "subject_code", "course_section"],
-      "Subject Code": ["subject_code", "course_section", "subject"],
-      "Course Section": ["course_section","subject_code", "subject"],
-    };
-  },// Start dragging a cell/subject
- // Drag start
+
+
+// Drag start
 startDrag(event, subject, col) {
-  if (!this.editMode) return; // block drag if not in edit mode
+  if (!this.editMode) return;
   this.dragData = { sourceId: subject.id, col };
   event.dataTransfer.effectAllowed = "move";
 },
-// Drop handler
-onDrop(event, targetFaculty, targetRowIndex, targetCol) {
+onDrop(event, targetFaculty, targetRowIndex) {
   if (!this.dragData) return;
 
-  const { sourceId, col: sourceCol } = this.dragData;
-  const sourceRow = this.pendingSchedules.find(s => s.id === sourceId);
-  const facultyRows = this.pendingSchedules.filter(s => s.faculty === targetFaculty);
-  const targetRow = facultyRows[targetRowIndex];
-  if (!sourceRow || !targetRow) return;
+  const { sourceId } = this.dragData;
+  const sourceRowIndex = this.pendingSchedules.findIndex(s => s.id === sourceId);
+  if (sourceRowIndex === -1) return;
+  const sourceRow = this.pendingSchedules[sourceRowIndex];
 
-  // Save action for undo (capture full prevValue so undo restores everything)
+  const isCrossFaculty = sourceRow.faculty !== targetFaculty;
+
+  // Save for undo
   this.actionHistory.push({
     type: "drag",
-    affectedRows: [
-      { id: sourceRow.id, prevValue: { ...sourceRow } },
-      { id: targetRow.id, prevValue: { ...targetRow } }
-    ]
+    affectedRows: [{ id: sourceRow.id, prevValue: { ...sourceRow } }],
   });
 
-  // Determine which keys to swap based on the column mapping.
-  // But enforce we only ever touch subject identity fields (no time/room/units/faculty)
-  const mapped = this.linkedColumns()[targetCol] || [targetCol.toLowerCase().replace(" ", "_")];
+  if (isCrossFaculty) {
+    // Cross-faculty: assign to new faculty
+    this.pendingSchedules[sourceRowIndex].faculty = targetFaculty;
 
-  // Allowed keys to actually swap (subject identity only)
-  const allowedSwapKeys = ["subject", "subject_code", "course_section"];
+    const facultyRows = this.pendingSchedules.filter(s => s.faculty === targetFaculty && s.id !== sourceRow.id);
+    const targetRow = facultyRows[targetRowIndex];
+    const insertIndex = targetRow ? this.pendingSchedules.indexOf(targetRow) : this.pendingSchedules.length;
 
-  // Perform the swap only for allowed keys
-  mapped.forEach(colKey => {
-    const key = colKey.toLowerCase().replace(" ", "_");
-    if (allowedSwapKeys.includes(key)) {
-      const tmp = sourceRow[key];
-      sourceRow[key] = targetRow[key];
-      targetRow[key] = tmp;
+    this.pendingSchedules.splice(sourceRowIndex, 1); // remove old
+    this.pendingSchedules.splice(insertIndex, 0, sourceRow);
+
+  } else {
+    // Same-faculty swap
+    const facultyRows = this.pendingSchedules.filter(s => s.faculty === targetFaculty && s.id !== sourceRow.id);
+    const targetRow = facultyRows[targetRowIndex];
+
+    if (targetRow) {
+      const targetIndex = this.pendingSchedules.indexOf(targetRow);
+      this.$set(this.pendingSchedules, sourceRowIndex, targetRow);
+      this.$set(this.pendingSchedules, targetIndex, sourceRow);
+    } else {
+      // If no target row, move to end
+      this.pendingSchedules.splice(sourceRowIndex, 1);
+      this.pendingSchedules.push(sourceRow);
     }
-  });
-
-  // IMPORTANT: Do NOT swap time / classroom / units / faculty.
-  // If you *want* the dragged subject to become visually in the other faculty row,
-  // do NOT change `faculty`, `time`, `classroom`, or `units` here. We intentionally leave them.
-
-  // If either row has possible_assignments or assigned_suggestion, keep them consistent:
-  // we swap possible assignment references for those identity fields so suggestions remain tied.
-  if (allowedSwapKeys.some(k => mapped.map(m=>m.toLowerCase().replace(" ", "_")).includes(k))) {
-    // swap assigned_suggestion references if present, so 'Assigned suggestion' follows the subject identity
-    const tmpAssigned = sourceRow.assigned_suggestion;
-    sourceRow.assigned_suggestion = targetRow.assigned_suggestion;
-    targetRow.assigned_suggestion = tmpAssigned;
-
-    // swap possible_assignments arrays so the subject options travel with subject identity
-    const tmpPossible = sourceRow.possible_assignments;
-    sourceRow.possible_assignments = targetRow.possible_assignments;
-    targetRow.possible_assignments = tmpPossible;
-
-    // also swap _original_possible_assignments if present
-    const tmpOrig = sourceRow._original_possible_assignments;
-    sourceRow._original_possible_assignments = targetRow._original_possible_assignments;
-    targetRow._original_possible_assignments = tmpOrig;
   }
 
-  // Re-run suggestion refresh so UI updates and conflicts get recalculated
+  // Refresh suggestions & conflicts
   this.refreshAISuggestions();
-
-  // trigger reactivity
+  this.detectConflicts();
   this.pendingSchedules = [...this.pendingSchedules];
   this.dragData = null;
 }
 
 ,
-onSubjectDropped(event) {
-  const { item, from, to } = event;
-  const draggedId = item.dataset.id;
 
-  // Find the dragged subject
-  const draggedSubject = this.pendingSchedules.find(s => s.id == draggedId);
-  if (!draggedSubject) return;
+  getConflictTooltip(row) {
+    if (!row.conflict) return '';
+    const conflicts = this.pendingSchedules
+      .filter(r => r.id !== row.id && r.time === row.time && (r.faculty === row.faculty || r.classroom === row.classroom))
+      .map(r => `${r.subject} (${r.faculty} / ${r.classroom})`);
+    return conflicts.join('\n');
+  },
 
-  // Determine target faculty
-  const targetFaculty = to.dataset.faculty;
-  if (!targetFaculty || targetFaculty === draggedSubject.faculty) return;
+detectConflicts() {
+  // Reset all conflicts
+  this.pendingSchedules.forEach(row => row.conflict = false);
 
-  // Find all subjects in target faculty
-  const targetSubjects = this.pendingSchedules.filter(s => s.faculty === targetFaculty);
-
-  // Find the index in target faculty where it is dropped
-  const toIndex = Array.from(to.children).indexOf(item);
-
-  // Remove from old faculty array
-  const fromIndex = this.pendingSchedules.indexOf(draggedSubject);
-  if (fromIndex > -1) this.pendingSchedules.splice(fromIndex, 1);
-
-  // Insert into new position
-  let insertIndex = toIndex;
-  if (insertIndex > targetSubjects.length) insertIndex = targetSubjects.length;
-
-  // Update the faculty
-  draggedSubject.faculty = targetFaculty;
-
-  // Insert back into main array at the correct index
-  const firstTargetIndex = this.pendingSchedules.findIndex(s => s.faculty === targetFaculty);
-  if (firstTargetIndex > -1) {
-    this.pendingSchedules.splice(firstTargetIndex + insertIndex, 0, draggedSubject);
-  } else {
-    this.pendingSchedules.push(draggedSubject);
-  }
-
-  // Refresh assignments for the dragged subject
-  draggedSubject.possible_assignments = this.getFilteredAssignmentsForFaculty(
-    draggedSubject._original_possible_assignments,
-    targetFaculty
-  );
-
-  this.$forceUpdate();
-},
-
-
-// ✅ Helper to re-filter possible_assignments per faculty (local only)
-getFilteredAssignmentsForFaculty(originalAssignments, facultyName) {
-  const currentFacultySchedules = this.pendingSchedules.filter(
-    s => s.faculty === facultyName
-  );
-
-return originalAssignments.filter(a => {
-  if (this.checkAssignmentConflict({
-    id: subject.id,
-    faculty_id: a.faculty_id,
-    room_id: a.room_id,
-    time_slot_label: a.time_slot || a.time
-  })) return false;
-
-    // Room conflict: same room + overlapping time
-    const roomConflict = this.pendingSchedules.some(s => {
-      if (!s.classroom || !s.time) return false;
-      return s.classroom === a.room && this.slotLabelsOverlap(s.time, aSlot);
-    });
-
-    return !facultyConflict && !roomConflict;
+  // Faculty conflicts: same faculty & same time
+  const byFaculty = {};
+  this.pendingSchedules.forEach(row => {
+    if (!row.faculty || row.faculty.toLowerCase() === 'unknown') return;
+    if (!byFaculty[row.faculty]) byFaculty[row.faculty] = [];
+    byFaculty[row.faculty].push(row);
   });
+
+  Object.values(byFaculty).forEach(rows => {
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length; j++) {
+        if (!rows[i].time || !rows[j].time) continue;
+        if (rows[i].time === rows[j].time) {
+          rows[i].conflict = true;
+          rows[j].conflict = true;
+        }
+      }
+    }
+  });
+
+  // Room conflicts: same room & same time, skip unassigned
+  const assignedRows = this.pendingSchedules.filter(r => r.faculty && r.faculty.toLowerCase() !== 'unknown');
+  for (let i = 0; i < assignedRows.length; i++) {
+    for (let j = i + 1; j < assignedRows.length; j++) {
+      const a = assignedRows[i];
+      const b = assignedRows[j];
+      if (!a.time || !b.time || !a.room_name || !b.room_name) continue;
+      if (a.room_name === b.room_name && a.time === b.time) {
+        a.conflict = true;
+        b.conflict = true;
+      }
+    }
+  }
 }
 ,
 
@@ -571,52 +538,61 @@ isEditingCell(faculty, row, col) {
 },
 
      // 3️⃣ Record a manual edit
-  saveEdit(faculty, rowIndex, col) {
-    const key = col.toLowerCase().replace(" ", "_");
-    const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
-    const editedRow = facultyRows[rowIndex];
-    if (!editedRow) return;
+// 3️⃣ Record a manual edit
+saveEdit(faculty, rowIndex, col) {
+  const key = col.toLowerCase().replace(" ", "_");
+  const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
+  const editedRow = facultyRows[rowIndex];
+  if (!editedRow) return;
 
-    // Save previous value
-    this.actionHistory.push({
-      type: "edit",
-      subjectId: editedRow.id,
-      prevValue: editedRow[key]
+  // Save previous value
+  this.actionHistory.push({
+    type: "edit",
+    subjectId: editedRow.id,
+    prevValue: editedRow[key],
+    key
+  });
+
+  editedRow[key] = this.editableValue;
+  this.editableCell = null;
+  this.editableValue = "";
+  this.pendingSchedules = [...this.pendingSchedules];
+},
+
+// 4️⃣ Undo function
+undoLastAction() {
+  if (!this.actionHistory.length) return alert("Nothing to undo!");
+
+  const lastAction = this.actionHistory.pop();
+
+  if (lastAction.type === "assign") {
+    const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
+    if (target) Object.assign(target, lastAction.prevState);
+  } else if (lastAction.type === "drag") {
+    lastAction.affectedRows.forEach(row => {
+      const target = this.pendingSchedules.find(s => s.id === row.id);
+      if (target) Object.assign(target, row.prevValue);
     });
+  } else if (lastAction.type === "edit") {
+    const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
+    if (target && lastAction.key) target[lastAction.key] = lastAction.prevValue;
+  }
 
-    editedRow[key] = this.editableValue;
-    this.editableCell = null;
-    this.editableValue = "";
-    this.pendingSchedules = [...this.pendingSchedules];
-  },
-  // 4️⃣ Undo function
-  undoLastAction() {
-    if (!this.actionHistory.length) return alert("Nothing to undo!");
-
-    const lastAction = this.actionHistory.pop();
-
-    if (lastAction.type === "assign") {
-      const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
-      if (!target) return;
-      Object.assign(target, lastAction.prevState);
-      this.refreshAISuggestions();
-
-    } else if (lastAction.type === "drag") {
-      lastAction.affectedRows.forEach(row => {
-        const target = this.pendingSchedules.find(s => s.id === row.id);
-        if (target) Object.assign(target, row.prevValue);
-      });
-
-    } else if (lastAction.type === "edit") {
-      const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
-      if (target) {
-        const key = this.editableCell?.col.toLowerCase().replace(" ", "_") || "";
-        if (key) target[key] = lastAction.prevValue;
-      }
+  // ✅ Rebuild used slots & rooms after undo
+  this.usedSlots = {};
+  this.usedRooms = {};
+  for (const s of this.pendingSchedules) {
+    if (s.faculty && s.faculty !== "Unknown" && s.time && s.classroom) {
+      this.markUsedSlotAndRoom(s.assigned_faculty_id || s.faculty, s.assigned_room_id || s.classroom, s.time);
     }
+  }
 
-    this.pendingSchedules = [...this.pendingSchedules];
-  },
+  // ✅ Recalculate conflicts and refresh suggestions
+  this.detectConflicts();
+  this.refreshAISuggestions();
+  this.pendingSchedules = [...this.pendingSchedules]; // force re-render
+}
+,
     parseSlotLabel(label) {
   if (!label || typeof label !== 'string') return null;
   try {
@@ -771,20 +747,7 @@ getPossibleAssignments(subject) {
 },
 
 
-    // other existing methods unchanged below ↓↓↓
-    suggestionFlags(pa, subject) {
-      const faculty = this.findFacultyById(pa.faculty_id) || {};
-      const current = faculty.current_load || pa.faculty_current_load || 0;
-      const max = faculty.max_load || pa.faculty_max_load || 12;
-      const willExceed = (current + (subject?.units || 0)) > max;
-      const underload = current < (max/2);
-      const subjDept = (subject?.course_code||'').toString().substring(0,2).toUpperCase();
-      const facDept = (faculty.department||pa.faculty_department||'').toString().substring(0,2).toUpperCase();
-      const deptMatch = subjDept && facDept && subjDept === facDept;
-      const conflictsExistingSlot = this.checkSlotConflict(pa.faculty_id, pa.time_slot_label||pa.time||'');
-      const conflictsExistingRoom = this.checkRoomConflict(pa.room_id, pa.time_slot_label||pa.time||'');
-      return { deptMatch, willExceed, underload, conflictsExistingSlot, conflictsExistingRoom };
-    },
+
   checkTimeConflict(pa) {
     return this.pendingSchedules.some(s =>
       s.faculty === pa.faculty_name &&
@@ -890,24 +853,32 @@ toMinutes(t) {
   return h * 60 + m;
 },
 
+async deleteBatch(batchId) {
+  if (!batchId) return alert("No batch selected to delete.");
+  if (!confirm("Are you sure you want to delete this batch? This cannot be undone.")) return;
 
-timeToMinutesFlexible(t) {
-  if (!t) return 0;
-  t = t.toString().trim();
-  // Handle both "6" and "06:00" formats
-  const parts = t.split(":");
-  const hour = parseInt(parts[0].replace(/\D/g, "")) || 0;
-  const minute = parseInt(parts[1]) || 0;
-  return hour * 60 + minute;
-},
-
-
-timeToMinutes(timeStr) {
-  const [hourStr, minuteStr] = timeStr.split(":");
-  const hour = parseInt(hourStr);
-  const minute = parseInt(minuteStr) || 0;
-  return hour * 60 + minute;
-},
+  this.show();
+  try {
+    const res = await fetch(`/api/pending-schedules/${batchId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert("✅ Batch deleted successfully!");
+      this.loadPendingSchedules();
+      if (this.selectedBatch === batchId) this.selectedBatch = null;
+    } else {
+      alert("❌ Failed to delete batch: " + (data.message || "Unknown error"));
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Network error while deleting batch.");
+  } finally {
+    this.hide();
+  }
+}
+,
 
 normalizeSlotLabel(label) {
   const p = this.parseSlotLabel(label);
@@ -1114,74 +1085,57 @@ async openBatch(batchId) {
   try {
     const res = await fetch(`/api/pending-schedules/${batchId}`);
     const data = await res.json();
+    
+    // --- Set batch-level academicYear and semester ---
+    this.academicYear = data.academicYear || data.batch?.academicYear || "Unknown Year";
+    this.semester = data.semester || data.batch?.semester || "Unknown Semester";
 
-    let grouped = [];
-    let unassigned = [];
+    let grouped = Object.values(data.grouped || {}).flat();
+    let unassigned = data.unassigned || [];
 
-    if (data.grouped || data.unassigned) {
-      grouped = Object.values(data.grouped || {}).flat();
-      unassigned = data.unassigned || [];
-    }
+    // --- Build full pendingSchedules list with batch info ---
+    const mapSchedule = (s) => {
+      const baseAssignments = s.possible_assignments?.length
+        ? s.possible_assignments
+        : s.payload?.possible_assignments || [];
 
-    // --- Build full pendingSchedules list ---
+      return {
+        id: s._localId || s.id || `${s.courseCode || s.subject}-${Math.random()}`,
+        subject_code: s.courseCode || s.course_code || "",
+        faculty: s.faculty || s.faculty_name || "Unknown",
+        assigned_faculty_id: s.assigned_faculty_id || s.faculty_id || null,
+        assigned_room_id: s.assigned_room_id || s.room_id || null,
+        subject: s.subject || s.subject_title || "Untitled",
+        time: s.time || s.time_slot || s.time_slot_label || "",
+        classroom: s.classroom || s.room_name || s.room || "",
+        course_section: s.courseSection || s.course_section || "",
+        units: Number(s.units || 0),
+        payload: s.payload || null,
+        possible_assignments: [...baseAssignments],
+        _original_possible_assignments: [...baseAssignments],
+        academicYear: s.academicYear || this.academicYear,
+        semester: s.semester || this.semester,
+      };
+    };
+
     this.pendingSchedules = [
-      ...grouped.map(s => {
-        const baseAssignments = s.possible_assignments?.length
-          ? s.possible_assignments
-          : s.payload?.possible_assignments || [];
-
-        return {
-          id: s._localId || s.id || `${s.courseCode || s.subject}-${Math.random()}`,
-          subject_code: s.courseCode || s.course_code || "",
-          faculty: s.faculty || s.faculty_name || "Unknown",
-          assigned_faculty_id: s.assigned_faculty_id || s.faculty_id || null,
-          assigned_room_id: s.assigned_room_id || s.room_id || null,
-          subject: s.subject || s.subject_title || "Untitled",
-          time: s.time || s.time_slot || s.time_slot_label || "",
-          classroom: s.classroom || s.room_name || s.room || "",
-          course_section: s.courseSection || s.course_section || "",
-          units: Number(s.units || 0),
-          payload: s.payload || null,
-          possible_assignments: [...baseAssignments],
-          _original_possible_assignments: [...baseAssignments],
-        };
-      }),
-      ...unassigned.map(u => {
-        const derivedOptions = u.possible_assignments || u.payload?.possible_assignments || [];
-
-        return {
-          id: u._localId || u.id || `${u.subject_code || u.subject}-${Math.random()}`,
-          subject_code: u.course_code || u.CourseCode || "",
-          faculty: u.faculty || "Unknown",
-          assigned_faculty_id: u.assigned_faculty_id || u.faculty_id || null,
-          assigned_room_id: u.assigned_room_id || u.room_id || null,
-          subject: u.subject_display || u.subject_title || u.subject || "Untitled",
-          time: u.time || u.time_slot_label || "",
-          classroom: u.classroom || u.room_name || "",
-          course_section: u.course_section || u.courseSection || "",
-          units: Number(u.units || 0),
-          payload: u.payload || null,
-          possible_assignments: [...derivedOptions],
-          _original_possible_assignments: [...derivedOptions],
-        };
-      }),
+      ...grouped.map(mapSchedule),
+      ...unassigned.map(mapSchedule),
     ];
 
-    // --- Reset and rebuild used slots/rooms from existing assignments ---
+    // --- Reset and rebuild used slots/rooms ---
     this.usedSlots = {};
     this.usedRooms = {};
 
     const findIdsForAssigned = (s) => {
-      // prefer explicit IDs
       if (s.assigned_faculty_id || s.assigned_room_id) {
         return {
           facultyIdentifier: s.assigned_faculty_id || s.faculty || null,
           roomIdentifier: s.assigned_room_id || s.classroom || null,
-          slot: s.time || s.time_slot_label || "",
+          slot: s.time || "",
         };
       }
 
-      // else match against original possible assignments
       const arr = s._original_possible_assignments || s.possible_assignments || [];
       const match = arr.find(opt => {
         const slot = opt.time_slot_label || opt.time || "";
@@ -1202,7 +1156,6 @@ async openBatch(batchId) {
         };
       }
 
-      // fallback to names
       return {
         facultyIdentifier: s.faculty || null,
         roomIdentifier: s.classroom || null,
@@ -1217,7 +1170,6 @@ async openBatch(batchId) {
       }
     }
 
-    // --- Finalize modal and refresh AI suggestions ---
     this.showModal = true;
     this.refreshAISuggestions();
     this.$forceUpdate();
@@ -1229,6 +1181,78 @@ async openBatch(batchId) {
     this.hide();
   }
 },
+
+async finalizeSchedule() {
+  if (!this.selectedBatch) return alert("No batch selected to finalize.");
+
+  // Check for unassigned subjects
+  const unassignedSubjects = this.pendingSchedules.filter(
+    s => !s.faculty || s.faculty === "Unknown"
+  );
+  if (unassignedSubjects.length > 0) {
+    return alert(`❌ Cannot finalize: ${unassignedSubjects.length} subjects are still unassigned.`);
+  }
+
+  // Check for conflicts
+  this.detectConflicts();
+  const conflictCount = this.pendingSchedules.filter(s => s.conflict).length;
+  if (conflictCount > 0) {
+    return alert(`❌ Cannot finalize: ${conflictCount} schedule conflicts detected.`);
+  }
+
+  // Confirm before finalizing
+  if (!confirm("Are you sure you want to finalize this schedule? This action cannot be undone.")) return;
+
+  this.show();
+
+  try {
+    const schedulePayload = this.pendingSchedules.map(s => ({
+      faculty: s.faculty,
+      subject: s.subject,
+      time: s.time,
+      classroom: s.classroom,
+      course_code: s.course_code || s.subject_code || null,
+      course_section: s.course_section || null,
+      units: s.units || 0,
+      academicYear: s.academicYear, // guaranteed
+      semester: s.semester,         // guaranteed
+      payload: { ...s.payload, unassigned: [] },
+      batch_id: this.selectedBatch,
+      status: 'finalized',
+      user_id: this.currentUserId || null,
+    }));
+
+    const res = await fetch(`/api/finalized-schedules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schedule: schedulePayload,
+        batch_id: this.selectedBatch,
+        academicYear: this.academicYear,
+        semester: this.semester,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      alert("✅ Schedule finalized successfully!");
+      this.pendingSchedules = [];
+      this.loadPendingSchedules();
+      this.showModal = false;
+      this.editMode = false;
+      this.selectedBatch = null;
+    } else {
+      alert("❌ Failed to finalize schedule: " + (data.message || "Unknown error"));
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Network error while finalizing schedule.");
+  } finally {
+    this.hide();
+  }
+}
+,
 
 
     async saveChanges(){ if(!this.selectedBatch) return alert("No batch selected."); if(!this.pendingSchedules.length) return alert("No schedules to save."); this.show(); try{ const schedulesToSave = this.pendingSchedules.map(s => ({
@@ -1515,6 +1539,18 @@ async openBatch(batchId) {
   font-size: 18px;
   font-weight: bold;
   margin: 0;
+}
+.conflict {
+  background-color: rgba(255, 0, 0, 0.15);
+  border-left: 4px solid red;
+  transition: background-color 0.3s ease;
+}
+
+.conflict-note {
+  color: red;
+  font-weight: bold;
+  font-size: 0.85rem;
+  margin-left: 4px;
 }
 
 /* Unassigned quick assign styles */

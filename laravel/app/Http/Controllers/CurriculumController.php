@@ -40,36 +40,29 @@ public function store(Request $request)
     $currentSemesterId = null;
     $currentYearLevel = null;
 
-    // Define header keywords to skip
-    $headerKeywords = ['subject code', 'subject title', 'units', 'hours', 'prerequisite', 'type'];
+    $headerKeywords = ['subject code', 'subject title', 'lec units', 'lab units', 'total units', 'prerequisite'];
 
     foreach ($rows as $row) {
-        // Skip completely empty rows
         if (!array_filter($row)) continue;
 
         $firstCell = trim($row[0] ?? '');
-        $secondCell = trim($row[1] ?? '');
 
-        // Detect semester row (e.g., "1st Year – 1st Semester")
-       // Detect semester row (e.g., "1st Year – 1st Semester")
+        // Detect year & semester row
         if (preg_match('/(\d+(st|nd|rd|th)\sYear)\s–\s(\d+(st|nd|rd|th)\sSemester)/i', $firstCell, $matches)) {
-            // $matches[1] = "1st Year", $matches[3] = "1st Semester"
             $currentYearLevel = $matches[1];
 
-            // Map semester text to fixed IDs
             $semesterText = strtolower($matches[3]);
             if (str_contains($semesterText, '1st')) {
                 $currentSemesterId = 1;
             } elseif (str_contains($semesterText, '2nd')) {
                 $currentSemesterId = 2;
             } else {
-                $currentSemesterId = null; // fallback
+                $currentSemesterId = null;
             }
-
             continue;
         }
 
-                // Skip header rows dynamically
+        // Skip header rows
         $isHeaderRow = false;
         foreach ($row as $cell) {
             if ($cell && in_array(strtolower(trim($cell)), $headerKeywords)) {
@@ -79,7 +72,7 @@ public function store(Request $request)
         }
         if ($isHeaderRow) continue;
 
-        // Insert subject
+        // ✅ Insert subject (map LEC/LAB/TOTAL properly)
         Subject::create([
             'curriculum_id' => $curriculum->id,
             'course_id'     => null,
@@ -87,15 +80,15 @@ public function store(Request $request)
             'semester_id'   => $currentSemesterId,
             'subject_code'  => $row[0] ?? null,
             'subject_title' => $row[1] ?? null,
-            'units'         => isset($row[2]) ? (int)$row[2] : null,
-            'hours'         => isset($row[3]) ? (int)$row[3] : null,
-            'pre_requisite' => $row[4] ?? 'None',
-            'type'          => $row[5] ?? 'Major',
+            'lec_units'     => isset($row[2]) ? (int)$row[2] : 0,
+            'lab_units'     => isset($row[3]) ? (int)$row[3] : 0,
+            'total_units'   => isset($row[4]) ? (int)$row[4] : 0,
+            'pre_requisite' => $row[5] ?? 'None',
         ]);
     }
 
     return response()->json([
-        'message' => 'Curriculum uploaded and subjects stored successfully',
+        'message' => 'Curriculum uploaded and subjects stored successfully.',
         'curriculum' => $curriculum,
     ]);
 }

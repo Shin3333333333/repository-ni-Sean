@@ -100,10 +100,10 @@
                 <tr>
                   <th>Code</th>
                   <th>Title</th>
-                  <th>Units</th>
-                  <th>Hours</th>
+                  <th>LEC Units</th>
+                  <th>LAB Units</th>
+                  <th>Total Units</th>
                   <th>Pre-requisite</th>
-                  <th>Type</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,10 +113,11 @@
                 >
                   <td><input v-model="subject.subject_code" type="text" required /></td>
                   <td><input v-model="subject.subject_title" type="text" required /></td>
-                  <td><input v-model.number="subject.units" type="number" min="0" /></td>
-                  <td><input v-model.number="subject.hours" type="number" min="0" /></td>
+                  <td><input v-model.number="subject.lec_units" type="number" min="0" /></td>
+                  <td><input v-model.number="subject.lab_units" type="number" min="0" /></td>
+                  <td><input v-model.number="subject.total_units" type="number" min="0" /></td> 
                   <td><input v-model="subject.pre_requisite" type="text" /></td>
-                  <td><input v-model="subject.type" type="text" /></td>
+              
                 </tr>
               </tbody>
             </table>
@@ -142,39 +143,54 @@ export default {
     show: Boolean,
     courseForm: Object,
     curriculumList: Array,
-    semesterList: Array
+    semesterList: Array,
   },
   emits: ["update:show", "update:courseForm", "submit", "upload"],
   data() {
     return {
+      
       selectedSemesterKey: "", // current year-semester filter
-      allCurriculumSubjects: [] // store subjects loaded from selected curriculum
+      allCurriculumSubjects: [], // store subjects loaded from selected curriculum
     };
   },
   computed: {
-    // Filter subjects by selected year-semester
+    // Filter subjects by selected semester and by course ID (when editing)
     filteredSubjects() {
-      if (!this.selectedSemesterKey) return this.courseForm.subjects || [];
-      return (this.courseForm.subjects || []).filter(
-        s => `${s.year_level}-${s.semester_id}` === this.selectedSemesterKey
-      );
+      let subjects = this.courseForm.subjects || [];
+
+      // When editing, show only subjects linked to this course
+      if (this.courseForm.id) {
+        subjects = subjects.filter(
+          (s) => s.course_id === this.courseForm.id
+        );
+      }
+
+      // If semester filter is selected, narrow down further
+      if (this.selectedSemesterKey) {
+        subjects = subjects.filter(
+          (s) => `${s.year_level}-${s.semester_id}` === this.selectedSemesterKey
+        );
+      }
+
+      return subjects;
     },
 
-    // Generate unique year-semester options
+    // Generate unique semester filter options based on subjects
     semesterFilterOptions() {
       if (!this.courseForm.subjects) return [];
       const options = [];
-      this.courseForm.subjects.forEach(sub => {
+      this.courseForm.subjects.forEach((sub) => {
         const key = `${sub.year_level}-${sub.semester_id}`;
         const label = `${sub.year_level} Year – ${this.getSemesterName(sub.semester_id)}`;
-        if (!options.some(o => o.key === key)) {
+        if (!options.some((o) => o.key === key)) {
           options.push({ key, label });
         }
       });
       return options;
-    }
+    },
   },
   watch: {
+    // Set semester filter when courseForm changes
     courseForm: {
       immediate: true,
       handler(val) {
@@ -185,44 +201,56 @@ export default {
         } else {
           this.selectedSemesterKey = "";
         }
-      }
+      },
     },
-    "courseForm.curriculum_id": {
-      immediate: true,
-      async handler(curriculumId) {
-        if (!curriculumId || !this.courseForm.year) return;
 
-        // Fetch subjects for the selected curriculum from the backend
-        try {
-          const res = await fetch(`/api/curriculums/${curriculumId}/subjects`);
-          const subjects = await res.json();
+    // Only load curriculum subjects when creating a new course
+"courseForm.curriculum_id": {
+  async handler(curriculumId) {
+    // ✅ Only fetch when ADDING new course
+    if (!curriculumId || !this.courseForm.year || this.courseForm.id)
+      return;
 
-          // Filter subjects for the selected course year only
-          const filtered = subjects.filter(
-            s => s.year_level === this.courseForm.year
-          );
+    try {
+      const res = await fetch(`/api/curriculums/${curriculumId}/subjects`);
+      const subjects = await res.json();
 
-          // Clone subjects in the local courseForm (so table shows immediately)
-          this.courseForm.subjects = filtered.map(s => ({
-            ...s,
-            id: s.id, // keep the original id if exists
-            course_id: null // mark as not yet linked to a course
-          }));
+      // Filter subjects by selected course year
+      let filtered = subjects.filter(
+        (s) => s.year_level === this.courseForm.year
+      );
 
-          // Set the default semester filter
-          if (this.courseForm.subjects.length) {
-            const first = this.courseForm.subjects[0];
-            this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
-          }
-        } catch (err) {
-          console.error("Failed to load curriculum subjects:", err);
-        }
+      // ✅ Remove duplicates (same subject_code + subject_title)
+      const seen = new Set();
+      filtered = filtered.filter(s => {
+        const key = `${s.subject_code.trim().toLowerCase()}|${s.subject_title.trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      // Clone into courseForm.subjects (temporary)
+      this.courseForm.subjects = filtered.map((s) => ({
+        ...s,
+        id: s.id,
+        course_id: null, // not yet assigned
+      }));
+
+      // Default semester selection
+      if (this.courseForm.subjects.length) {
+        const first = this.courseForm.subjects[0];
+        this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
       }
+    } catch (err) {
+      console.error("Failed to load curriculum subjects:", err);
     }
+  },
+},
+
   },
   methods: {
     getSemesterName(id) {
-      const sem = this.semesterList.find(s => s.id === Number(id));
+      const sem = this.semesterList.find((s) => s.id === Number(id));
       return sem ? sem.name : "";
     },
     handleModalClick() {
@@ -234,17 +262,19 @@ export default {
     uploadCurriculum(event) {
       this.$emit("upload", event);
     },
+    
     addCourse() {
-      // Normalize year to include " Year" before submission
+      // Normalize year format before submission
       if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
         this.courseForm.year = `${this.courseForm.year} Year`;
       }
       this.$emit("submit", this.courseForm);
       this.$emit("update:show", false);
-    }
-  }
+    },
+  },
 };
 </script>
+
 
 
 <style scoped>
