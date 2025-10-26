@@ -12,7 +12,9 @@ use App\Http\Controllers\{
     CurriculumController,
     ScheduleController,
     PendingScheduleController,
-    FinalizedScheduleController
+    FinalizedScheduleController,
+    ActiveScheduleController,
+    ErrorLogController
 };
 
 /*
@@ -76,6 +78,18 @@ Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class
 
 // Finalized schedules
 Route::post('/finalized-schedules', [FinalizedScheduleController::class, 'saveFinalizedSchedule']);
-Route::get('/finalized-schedules', [FinalizedScheduleController::class, 'index']); // optional
+Route::get('/finalized-schedules', [FinalizedScheduleController::class, 'index']);
+Route::post('/finalized-schedules/stage', [FinalizedScheduleController::class, 'stageActive']);
+Route::get('/finalized-schedules/active', [FinalizedScheduleController::class, 'getActive']);
+// optional
 Route::get('/finalized-schedules/{batch_id}', [FinalizedScheduleController::class, 'show']); // optional
 Route::delete('/finalized-schedules/{batch_id}', [FinalizedScheduleController::class, 'destroy']); // optional
+
+Route::post('/finalized-schedules/{batch_id}/stage', [FinalizedScheduleController::class, 'stage']);
+Route::post('/finalized-schedules/{batch_id}/activate', [FinalizedScheduleController::class, 'activate']);
+Route::post('/finalized-schedules/{batch_id}/archive', [FinalizedScheduleController::class, 'archive']);
+
+Route::get('/active-schedule', [ActiveScheduleController::class, 'getActive']);
+Route::post('/set-active-schedule', [ActiveScheduleController::class, 'setActive']);
+Route::post('/detect-conflicts', [ScheduleController::class, 'detectConflicts']);
+Route::get('/errors', [ErrorLogController::class, 'index']);

@@ -5,19 +5,17 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Curriculum;
 use App\Models\Subject;
-use App\Models\Semester;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use Illuminate\Support\Facades\Log;
 
 class CurriculumController extends Controller
 {
-    // Get all curricula
+    // 🔹 List all curriculums
     public function index()
     {
-        $curricula = Curriculum::all();
-        return response()->json($curricula);
+        return response()->json(Curriculum::all());
     }
 
-    // Upload a curriculum XLSX and store subjects
 public function store(Request $request)
 {
     $request->validate([
@@ -33,59 +31,133 @@ public function store(Request $request)
         'file_path' => $path,
     ]);
 
-    $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($file->getPathname());
+    Log::info("📘 Uploading curriculum file: {$filename}");
+
+    $spreadsheet = IOFactory::load($file->getPathname());
     $sheet = $spreadsheet->getActiveSheet();
     $rows = $sheet->toArray();
 
-    $currentSemesterId = null;
     $currentYearLevel = null;
+    $currentSemesterId = null;
+    $headerIndexes = [];
+    $skipNextRow = false;
 
-    $headerKeywords = ['subject code', 'subject title', 'lec units', 'lab units', 'total units', 'prerequisite'];
-
-    foreach ($rows as $row) {
-        if (!array_filter($row)) continue;
-
-        $firstCell = trim($row[0] ?? '');
-
-        // Detect year & semester row
-        if (preg_match('/(\d+(st|nd|rd|th)\sYear)\s–\s(\d+(st|nd|rd|th)\sSemester)/i', $firstCell, $matches)) {
-            $currentYearLevel = $matches[1];
-
-            $semesterText = strtolower($matches[3]);
-            if (str_contains($semesterText, '1st')) {
-                $currentSemesterId = 1;
-            } elseif (str_contains($semesterText, '2nd')) {
-                $currentSemesterId = 2;
-            } else {
-                $currentSemesterId = null;
-            }
+    foreach ($rows as $rowIndex => $row) {
+        if ($skipNextRow) {
+            $skipNextRow = false;
             continue;
         }
 
-        // Skip header rows
-        $isHeaderRow = false;
-        foreach ($row as $cell) {
-            if ($cell && in_array(strtolower(trim($cell)), $headerKeywords)) {
-                $isHeaderRow = true;
-                break;
+        if (!array_filter($row)) continue; // Skip empty rows
+
+        $firstCell = trim($row[0] ?? '');
+        if ($firstCell === '') continue;
+
+        // Detect Year Level
+        if (preg_match('/(first|second|third|fourth|fifth)\s*year/i', $firstCell, $match)) {
+            $map = [
+                'first' => '1st Year',
+                'second' => '2nd Year',
+                'third' => '3rd Year',
+                'fourth' => '4th Year',
+                'fifth' => '5th Year',
+            ];
+            $currentYearLevel = $map[strtolower($match[1])] ?? $firstCell;
+            Log::info("🧭 Detected Year Level: {$currentYearLevel} (Row {$rowIndex})");
+            continue;
+        }
+
+        // Detect Semester
+        $firstCellLower = strtolower($firstCell);
+        if (preg_match('/\b(1st|first|1)\b.*semester/i', $firstCellLower)) {
+            $currentSemesterId = 1;
+        } elseif (preg_match('/\b(2nd|second|2)\b.*semester/i', $firstCellLower)) {
+            $currentSemesterId = 2;
+        } elseif (preg_match('/summer/i', $firstCellLower)) {
+            $currentSemesterId = 3;
+        }
+
+        if ($currentSemesterId && preg_match('/semester|summer/i', $firstCellLower)) {
+            Log::info("📅 Detected Semester: '{$firstCell}' → ID {$currentSemesterId} (Row {$rowIndex})");
+            $headerIndexes = [];
+            continue;
+        }
+
+        // Detect & Merge Header Rows
+        if (empty($headerIndexes)) {
+            $normalizedRow = array_map(fn($v) => strtolower(trim($v ?? '')), $row);
+            $nextRow = isset($rows[$rowIndex + 1]) ? array_map(fn($v) => strtolower(trim($v ?? '')), $rows[$rowIndex + 1]) : [];
+            $combined = [];
+            for ($i = 0; $i < max(count($normalizedRow), count($nextRow)); $i++) {
+                $combined[$i] = trim(($normalizedRow[$i] ?? '') . ' ' . ($nextRow[$i] ?? ''));
+            }
+            if (empty(array_filter($combined))) $combined = $normalizedRow;
+
+            $possibleHeaders = implode(' ', $combined);
+            if (preg_match('/course.*code/', $possibleHeaders) && preg_match('/description|title|subject/', $possibleHeaders)) {
+                foreach ($combined as $i => $colName) {
+                    if (preg_match('/code/', $colName)) $headerIndexes['code'] = $i;
+                    if (preg_match('/description|title|subject/', $colName)) $headerIndexes['title'] = $i;
+                    if (preg_match('/lec|lecture/', $colName)) $headerIndexes['lec'] = $i;
+                    if (preg_match('/lab|laboratory/', $colName)) $headerIndexes['lab'] = $i;
+                    if (preg_match('/pre.*req/', $colName)) $headerIndexes['pre'] = $i;
+                    if (preg_match('/unit/', $colName) && !isset($headerIndexes['lec'])) {
+                        // Only use Units column if Lec not found
+                        $headerIndexes['lec'] = $i;
+                        $headerIndexes['lab'] = null;
+                    }
+                }
+                Log::info("🧾 Header detected at row {$rowIndex}: " . json_encode($headerIndexes));
+                $skipNextRow = true;
+                continue;
             }
         }
-        if ($isHeaderRow) continue;
 
-        // ✅ Insert subject (map LEC/LAB/TOTAL properly)
-        Subject::create([
-            'curriculum_id' => $curriculum->id,
-            'course_id'     => null,
-            'year_level'    => $currentYearLevel,
-            'semester_id'   => $currentSemesterId,
-            'subject_code'  => $row[0] ?? null,
-            'subject_title' => $row[1] ?? null,
-            'lec_units'     => isset($row[2]) ? (int)$row[2] : 0,
-            'lab_units'     => isset($row[3]) ? (int)$row[3] : 0,
-            'total_units'   => isset($row[4]) ? (int)$row[4] : 0,
-            'pre_requisite' => $row[5] ?? 'None',
-        ]);
+        if (empty($headerIndexes) || !$currentYearLevel) continue;
+
+        if (!$currentSemesterId) $currentSemesterId = 1;
+
+        $rowString = strtolower(implode(' ', $row));
+        if (str_contains($rowString, 'total unit') || str_contains($rowString, 'course code') || str_contains($rowString, 'description')) {
+            continue;
+        }
+
+        $code = trim($row[$headerIndexes['code']] ?? '');
+        $title = trim($row[$headerIndexes['title']] ?? '');
+        if ($code === '' || $title === '') continue;
+
+        if (!preg_match('/^[A-Z]{1,6}[- ]?\d{1,4}[A-Z-]*$/i', $code)) continue;
+
+        // Handle units
+        $lecUnits = isset($headerIndexes['lec']) ? (float)($row[$headerIndexes['lec']] ?? 0) : 0;
+        $labUnits = isset($headerIndexes['lab']) && $headerIndexes['lab'] !== null ? (float)($row[$headerIndexes['lab']] ?? 0) : 0;
+        $totalUnits = $lecUnits + $labUnits;
+
+        $preReqRaw = $row[$headerIndexes['pre']] ?? '';
+        $preReq = trim($preReqRaw);
+        if ($preReq === '' || $preReq === '-') $preReq = 'None';
+
+        try {
+            Subject::create([
+                'curriculum_id' => $curriculum->id,
+                'course_id'     => null,
+                'year_level'    => $currentYearLevel,
+                'semester_id'   => $currentSemesterId,
+                'subject_code'  => $code,
+                'subject_title' => $title,
+                'lec_units'     => $lecUnits,
+                'lab_units'     => $labUnits,
+                'total_units'   => $totalUnits,
+                'pre_requisite' => $preReq,
+            ]);
+
+            Log::info("✅ Added: {$code} – {$title} ({$currentYearLevel}, Sem {$currentSemesterId})");
+        } catch (\Exception $e) {
+            Log::error("❌ Failed to insert subject at row {$rowIndex}: " . $e->getMessage());
+        }
     }
+
+    Log::info("🎓 Curriculum import complete for {$curriculum->name}");
 
     return response()->json([
         'message' => 'Curriculum uploaded and subjects stored successfully.',
@@ -94,10 +166,12 @@ public function store(Request $request)
 }
 
 
-    // Get subjects for a curriculum
+
+    // 🔹 List subjects by curriculum
     public function subjects($curriculum_id)
     {
-        $subjects = Subject::where('curriculum_id', $curriculum_id)->get();
-        return response()->json($subjects);
+        return response()->json(
+            Subject::where('curriculum_id', $curriculum_id)->get()
+        );
     }
 }

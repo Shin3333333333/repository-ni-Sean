@@ -7,9 +7,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\FinalizedSchedule;
 use App\Models\PendingSchedule;
+use App\Models\ActiveSchedule;
 
 class FinalizedScheduleController extends Controller
 {
+    /**
+     * Finalize (save) a schedule batch
+     */
     public function saveFinalizedSchedule(Request $request)
     {
         $scheduleArray = $request->input('schedule', []);
@@ -22,7 +26,6 @@ class FinalizedScheduleController extends Controller
             ], 400);
         }
 
-        // ✅ Handle batch ID safely
         $batchId = $request->input('batch_id') ?? ($scheduleArray[0]['batch_id'] ?? null);
         if (!$batchId) {
             return response()->json(['success' => false, 'message' => 'Batch ID not provided.'], 400);
@@ -43,7 +46,6 @@ class FinalizedScheduleController extends Controller
                         'course_code' => $row['course_code'] ?? null,
                         'course_section' => $row['course_section'] ?? null,
                         'units' => $row['units'] ?? 0,
-                        // ✅ Guarantee fallback from top-level values
                         'academicYear' => $row['academicYear'] ?? $academicYear,
                         'semester' => $row['semester'] ?? $semester,
                         'status' => 'finalized',
@@ -53,7 +55,6 @@ class FinalizedScheduleController extends Controller
                     ]);
                 }
 
-                // ✅ Remove pending records once finalized
                 PendingSchedule::where('batch_id', $batchId)->delete();
             });
 
@@ -68,50 +69,94 @@ class FinalizedScheduleController extends Controller
             ], 500);
         }
     }
-// FinalizedScheduleController.php (replace or add this method)
-public function index(Request $request)
-{
-    $academicYear = $request->query('academicYear');
-    $semester = $request->query('semester');
 
-    // If specific academicYear+semester provided -> return those schedules
-    if ($academicYear && $semester) {
-        $schedules = FinalizedSchedule::where('academicYear', $academicYear)
-            ->where('semester', $semester)
-            ->get();
-    } else {
-        // Otherwise return ALL (or last N) so the frontend can populate filters
-        $schedules = FinalizedSchedule::orderByDesc('created_at')->get();
+    /**
+     * Get all finalized schedules, or filter by academicYear/semester if provided.
+     */
+    public function index(Request $request)
+    {
+        $academicYear = $request->query('academicYear');
+        $semester = $request->query('semester');
+
+        $query = FinalizedSchedule::query();
+
+        if ($academicYear && $semester) {
+            $query->where('academicYear', $academicYear)
+                  ->where('semester', $semester);
+        }
+
+        $schedules = $query->orderByDesc('created_at')->get();
+
+        $academicYears = FinalizedSchedule::distinct()->pluck('academicYear')->filter()->values();
+        $semesters = FinalizedSchedule::distinct()->pluck('semester')->filter()->values();
+        $courses = FinalizedSchedule::distinct()->pluck('course_code')->filter()->values();
+
+        return response()->json([
+            'success' => true,
+            'schedules' => $schedules,
+            'meta' => [
+                'academicYears' => $academicYears,
+                'semesters' => $semesters,
+                'courses' => $courses,
+            ],
+        ]);
     }
 
-    // Useful meta for frontend filters (distinct values)
-    $academicYears = FinalizedSchedule::query()
-        ->whereNotNull('academicYear')
-        ->distinct()
-        ->pluck('academicYear')
-        ->toArray();
+    /**
+     * Set a batch as the active schedule (staging action)
+     */
+    public function stageActive(Request $request)
+    {
+        $validated = $request->validate([
+            'academicYear' => 'required|string',
+            'semester' => 'required|string',
+        ]);
 
-    $semesters = FinalizedSchedule::query()
-        ->whereNotNull('semester')
-        ->distinct()
-        ->pluck('semester')
-        ->toArray();
+        // Clear any previous active schedule
+        ActiveSchedule::truncate();
 
-    $courses = FinalizedSchedule::query()
-        ->whereNotNull('course_code')
-        ->distinct()
-        ->pluck('course_code')
-        ->toArray();
+        // Create new active record
+        $active = ActiveSchedule::create([
+            'academicYear' => $validated['academicYear'],
+            'semester' => $validated['semester'],
+        ]);
 
-    return response()->json([
-        'success' => true,
-        'schedules' => $schedules,
-        'meta' => [
-            'academicYears' => $academicYears,
-            'semesters' => $semesters,
-            'courses' => $courses,
-        ],
-    ]);
-}
+        // Update all finalized schedules’ status for clarity
+        FinalizedSchedule::where('academicYear', $validated['academicYear'])
+            ->where('semester', $validated['semester'])
+            ->update(['status' => 'active']);
 
+        // Optionally mark others as archived
+        FinalizedSchedule::where(function ($q) use ($validated) {
+            $q->where('academicYear', '!=', $validated['academicYear'])
+              ->orWhere('semester', '!=', $validated['semester']);
+        })->update(['status' => 'archived']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Schedule staged and set as active successfully.',
+            'data' => $active,
+        ]);
+    }
+
+    /**
+     * Fetch the currently active schedule.
+     */
+    public function getActive()
+    {
+        $active = ActiveSchedule::latest()->first();
+
+        if (!$active) {
+            return response()->json(['active' => null, 'message' => 'No active schedule found.']);
+        }
+
+        $schedules = FinalizedSchedule::where('academicYear', $active->academicYear)
+            ->where('semester', $active->semester)
+            ->get();
+
+        return response()->json([
+            'active' => $active,
+            'schedules' => $schedules,
+        ]);
+    }
 }

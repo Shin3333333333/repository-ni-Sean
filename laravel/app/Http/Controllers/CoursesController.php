@@ -125,18 +125,22 @@ public function store(Request $request)
                 ->get();
 
             foreach ($subjects as $subject) {
-                Subject::create([
-                    'curriculum_id' => $subject->curriculum_id,
-                    'course_id'     => $course->id,
-                    'year_level'    => $subject->year_level,
-                    'semester_id'   => $subject->semester_id,
-                    'subject_code'  => $subject->subject_code,
-                    'subject_title' => $subject->subject_title,
-                    'units'         => $subject->units,
-                    'hours'         => $subject->hours,
-                    'pre_requisite' => $subject->pre_requisite ?? 'None',
-                    'type'          => $subject->type ?? 'Major',
-                ]);
+                foreach ($subjects as $subject) {
+                    Subject::create([
+                        'curriculum_id' => $subject->curriculum_id,
+                        'course_id'     => $course->id,
+                        'year_level'    => $subject->year_level,
+                        'semester_id'   => $subject->semester_id,
+                        'subject_code'  => $subject->subject_code,
+                        'subject_title' => $subject->subject_title,
+                        'lec_units'     => $subject->lec_units ?? 0,
+                        'lab_units'     => $subject->lab_units ?? 0,
+                        'total_units'   => ($subject->lec_units ?? 0) + ($subject->lab_units ?? 0),
+                        'pre_requisite' => $subject->pre_requisite ?? 'None',
+                    ]);
+                }
+
+
             }
         }
 
