@@ -143,19 +143,27 @@ public function finalize($batch_id)
     // ✅ Generate unique batch ID once per save
     $batchId = Str::uuid();
 
+    // Derive base academicYear and semester from first row
+    $baseYear = $data[0]['academicYear'] ?? 'Unknown';
+    $semester = $data[0]['semester'] ?? '1st Semester';
+
+    // Compute unique academicYear with suffix for this semester
+    $finalAcademicYear = $this->nextUniqueAcademicYear($baseYear, $semester);
+
     DB::beginTransaction();
     try {
         foreach ($data as $item) {
             $createData = [
                 'faculty' => $item['faculty'] ?? 'Unknown',
+                'faculty_id' => $item['faculty_id'] ?? null,
                 'subject' => $item['subject'] ?? 'Untitled',
                 'time' => $item['time'] ?? null,
                 'classroom' => $item['classroom'] ?? null,
                 'course_code' => $item['course_code'] ?? null,
                 'course_section' => $item['course_section'] ?? null,
                 'units' => $item['units'] ?? 0,
-                'academicYear' => $item['academicYear'] ?? 'Unknown',
-                'semester' => $item['semester'] ?? '1st Semester',
+                'academicYear' => $finalAcademicYear,
+                'semester' => $semester,
                 'status' => $item['status'] ?? 'pending',
                 'user_id' => auth()->id(),
                 'batch_id' => $batchId,
@@ -174,7 +182,9 @@ public function finalize($batch_id)
         return response()->json([
             'success' => true,
             'message' => 'Schedule saved as pending successfully!',
-            'batch_id' => $batchId
+            'batch_id' => $batchId,
+            'academicYear' => $finalAcademicYear,
+            'semester' => $semester,
         ]);
     } catch (\Exception $e) {
         DB::rollBack();
@@ -185,7 +195,39 @@ public function finalize($batch_id)
             'error' => $e->getMessage(),
         ], 500);
     }
+}
+
+/**
+ * Compute a unique academicYear label for the given semester by appending (n)
+ */
+private function nextUniqueAcademicYear(string $baseYear, string $semester): string
+{
+    $existing = DB::table('pending_schedules')
+        ->where('semester', $semester)
+        ->where('academicYear', 'like', $baseYear . '%')
+        ->pluck('academicYear')
+        ->toArray();
+
+    if (empty($existing)) {
+        return $baseYear;
     }
+
+    $maxSuffix = 0;
+    foreach ($existing as $label) {
+        if ($label === $baseYear) {
+            $maxSuffix = max($maxSuffix, 0);
+            continue;
+        }
+        // match baseYear(n)
+        $pattern = '/^' . preg_quote($baseYear, '\/') . '\\((\d+)\\)$/';
+        if (preg_match($pattern, $label, $m)) {
+            $n = intval($m[1]);
+            if ($n > $maxSuffix) $maxSuffix = $n;
+        }
+    }
+
+    return $baseYear . '(' . ($maxSuffix + 1) . ')';
+}
 public function updateBatch(Request $request, $batchId)
 {
     $schedules = $request->input('schedules', []);

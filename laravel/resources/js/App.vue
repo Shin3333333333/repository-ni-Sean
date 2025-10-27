@@ -44,6 +44,34 @@
         </div>
       </header>
 
+      <!-- Welcome Banner -->
+      <div class="welcome-banner">
+        <div class="banner-content">
+          <div class="welcome-section">
+            <svg class="icon" width="32" height="32" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+            </svg>
+            <span class="welcome-text">Welcome, {{ currentUserName || 'User' }}!</span>
+          </div>
+          <div class="schedule-section">
+            <svg class="icon calendar-icon" width="32" height="32" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="7" y1="2" x2="7" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="17" y1="2" x2="17" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="1"/>
+              <!-- Colorful date markers like Google Calendar -->
+              <circle cx="8" cy="13" r="2" fill="#4285f4"/>
+              <circle cx="12" cy="13" r="2" fill="#ea4335"/>
+              <circle cx="16" cy="13" r="2" fill="#fbbc04"/>
+              <circle cx="8" cy="17" r="2" fill="#34a853"/>
+              <circle cx="12" cy="17" r="2" fill="#ff6d01"/>
+            </svg>
+            <span class="schedule-label">Active Schedule:</span>
+            <span class="schedule-value">{{ activeScheduleDisplay || 'No active schedule' }}</span>
+          </div>
+        </div>
+      </div>
+
       <main class="content-card">
         <router-view />
       </main>
@@ -61,20 +89,87 @@ export default {
       profilepic,
       isAuthenticated: false,
       sidebarOpen: false,
+      currentUserName: 'User',
+      activeAcademicYear: '',
+      activeSemester: '',
+      scheduleUpdateInterval: null,
     };
+  },
+  computed: {
+    activeScheduleDisplay() {
+      if (this.activeAcademicYear && this.activeSemester) {
+        return `${this.activeAcademicYear} - ${this.activeSemester}`;
+      }
+      return null;
+    },
   },
   created() {
     const token = localStorage.getItem('authToken');
     this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+    this.fetchUserInfo();
+    if (this.isAuthenticated) {
+      this.fetchActiveScheduleInfo();
+    }
   },
   watch: {
     $route() {
       const token = localStorage.getItem('authToken');
       this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
       this.sidebarOpen = false;
+      // Refresh active schedule when navigating
+      if (this.isAuthenticated) {
+        this.fetchActiveScheduleInfo();
+      }
+    },
+    isAuthenticated(newVal) {
+      // Clean up existing interval
+      if (this.scheduleUpdateInterval) {
+        clearInterval(this.scheduleUpdateInterval);
+        this.scheduleUpdateInterval = null;
+      }
+      
+      // Set up new interval if authenticated
+      if (newVal) {
+        this.scheduleUpdateInterval = setInterval(() => {
+          this.fetchActiveScheduleInfo();
+        }, 5000);
+      }
     },
   },
+  mounted() {
+    // Set up periodic updates for active schedule
+    if (this.isAuthenticated) {
+      this.scheduleUpdateInterval = setInterval(() => {
+        this.fetchActiveScheduleInfo();
+      }, 5000); // Update every 5 seconds
+    }
+  },
+  beforeUnmount() {
+    // Clean up interval
+    if (this.scheduleUpdateInterval) {
+      clearInterval(this.scheduleUpdateInterval);
+    }
+  },
   methods: {
+    fetchUserInfo() {
+      try {
+        const userName = localStorage.getItem('userName') || 'User';
+        this.currentUserName = userName;
+      } catch (err) {
+        console.error('Failed to fetch user', err);
+      }
+    },
+    async fetchActiveScheduleInfo() {
+      try {
+        const res = await fetch(`/api/active-schedule`);
+        if (!res.ok) return;
+        const data = await res.json();
+        this.activeAcademicYear = data?.academicYear || '';
+        this.activeSemester = data?.semester || '';
+      } catch (e) {
+        console.error('Failed to fetch active schedule', e);
+      }
+    },
     logout() {
       localStorage.removeItem('authToken');
       this.isAuthenticated = false;
@@ -271,6 +366,86 @@ body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* Welcome Banner Styles */
+.welcome-banner {
+  background: transparent;
+  padding: 16px 0;
+  margin-bottom: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.banner-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.welcome-section, .schedule-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.welcome-section .icon {
+  color: #6BC4E2;
+  flex-shrink: 0;
+}
+
+.schedule-section .icon {
+  color: #7B8FC1;
+  flex-shrink: 0;
+}
+
+.welcome-text {
+  font-size: 26px;
+  font-weight: 700;
+  color: #333;
+}
+
+.schedule-label {
+  font-size: 16px;
+  color: #666;
+  font-weight: 500;
+}
+
+.schedule-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #000;
+}
+
+@media (max-width: 768px) {
+  .welcome-banner {
+    padding: 12px 0;
+  }
+  
+  .banner-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .icon {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .welcome-text {
+    font-size: 22px;
+  }
+  
+  .schedule-label {
+    font-size: 14px;
+  }
+  
+  .schedule-value {
+    font-size: 16px;
+  }
 }
 
 .content-card {

@@ -51,6 +51,34 @@
       <div class="modal-content">
         <div class="modal-header">
           <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
+          
+          <!-- Academic Year and Semester Input -->
+          <div class="academic-info" v-if="academicYear === 'Unknown Year' || semester === 'Unknown Semester'">
+            <div class="input-group">
+              <label for="academicYearInput">📅 Academic Year:</label>
+              <input 
+                id="academicYearInput" 
+                v-model="academicYear" 
+                type="text" 
+                placeholder="e.g., 2024-2025"
+                class="academic-input"
+              />
+            </div>
+            <div class="input-group">
+              <label for="semesterInput">📚 Semester:</label>
+              <select id="semesterInput" v-model="semester" class="academic-input">
+                <option value="Unknown Semester">Select Semester</option>
+                <option value="1st Semester">1st Semester</option>
+                <option value="2nd Semester">2nd Semester</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+            <div class="academic-warning">
+              ⚠️ Please set the correct Academic Year and Semester before finalizing
+            </div>
+          </div>
+          
           <div class="faculty-filter">
             <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
             <select id="facultySelect" v-model="facultyFilter" class="filter-select">
@@ -291,6 +319,10 @@ export default {
       usedSlots: {},
       usedRooms: {},
       actionHistory: [], // Stack to store undoable actions
+      professors: [],
+      professorsByName: {},
+      academicYear: "Unknown Year",
+      semester: "Unknown Semester",
     };
   },
   setup() {
@@ -610,10 +642,18 @@ undoLastAction() {
 
    assignToFaculty(subject, suggestion) {
       try {
+        // Extract faculty_id from suggestion, with fallback to id
+        const facultyId = suggestion.faculty_id || suggestion.id || null;
+        if (!facultyId) {
+          console.error("No faculty ID found in suggestion:", suggestion);
+          return;
+        }
+
         subject.assigned_faculty = suggestion.faculty_name;
         subject.assigned_room = suggestion.room_name;
         subject.assigned_time = suggestion.time_slot_label;
-        subject.assigned_faculty_id = suggestion.faculty_id;
+        subject.assigned_faculty_id = facultyId;
+        subject.faculty_id = facultyId; // Ensure base faculty_id is set
         subject.assigned_room_id = suggestion.room_id;
         subject.assigned_day = suggestion.time_day;
         subject.assigned_start = suggestion.time_start;
@@ -621,7 +661,7 @@ undoLastAction() {
 
         // After assigning, remove overlapping options
         this.filterConflictingAssignments(
-          suggestion.faculty_id,
+          facultyId,
           suggestion.room_id,
           suggestion.time_day,
           suggestion.time_start,
@@ -694,7 +734,7 @@ undoLastAction() {
         let progress = false;
 
         for (const subj of unassigned) {
-          const valid = this.filteredAssignments(subj);
+          const valid = this.getPossibleAssignments(subj);
           if (valid.length > 0) {
             const best = valid[0];
             this.assignSuggestion(subj.id, best);
@@ -715,8 +755,13 @@ getPossibleAssignments(subject) {
   let list = subject.possible_assignments || subject.payload?.possible_assignments || [];
   if (!Array.isArray(list)) return [];
 
-  // ✅ Compute match quality
+  // ✅ Compute match quality and ensure faculty_id is present
   list = list.map(pa => {
+    // Ensure faculty_id is present, fallback to id if needed
+    if (!pa.faculty_id && pa.id) {
+      pa.faculty_id = pa.id;
+    }
+    
     const flags = this.suggestionFlags(pa, subject);
     let score = 0;
 
@@ -734,12 +779,15 @@ getPossibleAssignments(subject) {
   // ✅ Sort so best matches are first
   list.sort((a, b) => b.matchScore - a.matchScore);
 
-  // ✅ Group to limit 2 per faculty
+  // ✅ Group to limit 2 per faculty using faculty_id as primary key
   const grouped = {};
   for (const pa of list) {
+    const facultyId = pa.faculty_id || pa.id;
     const name = pa.faculty_name || pa.faculty || 'Unknown';
-    if (!grouped[name]) grouped[name] = [];
-    if (grouped[name].length < 2) grouped[name].push(pa);
+    const key = facultyId ? `${facultyId}-${name}` : name;
+    
+    if (!grouped[key]) grouped[key] = [];
+    if (grouped[key].length < 2) grouped[key].push(pa);
   }
 
   // ✅ Flatten and return sorted list
@@ -964,9 +1012,16 @@ assignSuggestion(subjectId, assignment) {
   const target = this.pendingSchedules.find(s => s.id === subjectId);
   if (!target || (target.faculty && target.faculty !== 'Unknown')) return;
 
+  // Extract faculty_id from possible assignment, with fallback to id
+  const facultyId = assignment.faculty_id || assignment.id || null;
+  if (!facultyId) {
+    alert("❌ Error: No faculty ID found in assignment data. Cannot assign this subject.");
+    return;
+  }
+
   const conflict = this.checkAssignmentConflict({
     id: subjectId,
-    faculty_id: assignment.faculty_id,
+    faculty_id: facultyId,
     room_id: assignment.room_id,
     time_slot_label: assignment.time_slot_label || assignment.time,
   });
@@ -986,11 +1041,14 @@ assignSuggestion(subjectId, assignment) {
   target.classroom = assignment.room_name || assignment.classroom;
   target.time = assignment.time_slot_label || assignment.time;
   target.assigned_suggestion = assignment;
+  // Ensure base faculty_id is populated for finalization
+  target.assigned_faculty_id = facultyId;
+  target.faculty_id = facultyId;
 
   const units = target.units || 3;
   assignment.faculty_current_load = (assignment.faculty_current_load || 0) + units;
 
-  this.markUsedSlotAndRoom(assignment.faculty_id, assignment.room_id, assignment.time_slot_label || assignment.time);
+  this.markUsedSlotAndRoom(facultyId, assignment.room_id, assignment.time_slot_label || assignment.time);
   this.refreshAISuggestions();
 },
 
@@ -1073,8 +1131,21 @@ refreshAISuggestions() {
       return facultySchedules.reduce((sum,s)=>sum+(Number(s.units||0)),0);
     },
     formatDate(dateStr){ const d=new Date(dateStr); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); },
-    exitSchedule(){ this.pendingSchedules=[]; this.selectedBatch=null; },
-    closeModal(){ this.showModal=false; this.pendingSchedules=[]; this.selectedRows=[]; this.editMode=false; this.deleteMode=false; },
+    exitSchedule(){ 
+      this.pendingSchedules=[]; 
+      this.selectedBatch=null; 
+      this.academicYear = "Unknown Year";
+      this.semester = "Unknown Semester";
+    },
+    closeModal(){ 
+      this.showModal=false; 
+      this.pendingSchedules=[]; 
+      this.selectedRows=[]; 
+      this.editMode=false; 
+      this.deleteMode=false; 
+      this.academicYear = "Unknown Year";
+      this.semester = "Unknown Semester";
+    },
     toggleEditMode(){ this.editMode=!this.editMode; this.editableCell=null; if(this.editMode) alert("✅ You can drag or double-click to edit cells."); },
     saveEdit(faculty,row,col){ const key=col.toLowerCase().replace(" ","_"); const facultyRows=this.pendingSchedules.filter(s=>s.faculty===faculty); const editedRow=facultyRows[row]; if(!editedRow) return; editedRow[key]=this.editableValue; this.editableCell=null; this.editableValue=""; this.pendingSchedules=[...this.pendingSchedules]; },
     async loadPendingSchedules(){ this.show(); try{ const res=await fetch("/api/pending-schedules"); const data=await res.json(); this.batchList=data.pending||data.batches||[]; } catch(err){ console.error(err); alert("Failed to load pending schedules."); } finally{ this.hide(); } },
@@ -1083,12 +1154,47 @@ async openBatch(batchId) {
   this.show();
 
   try {
+    // Fetch professors to build a name->id map for robust ID resolution
+    try {
+      const profRes = await fetch('/api/professors');
+      if (profRes.ok) {
+        this.professors = await profRes.json();
+        const byName = {};
+        (Array.isArray(this.professors) ? this.professors : []).forEach(p => {
+          const key = (p.name || '').toString().trim().toLowerCase();
+          if (key && p.id != null) byName[key] = p;
+        });
+        this.professorsByName = byName;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch professors list for ID normalization', e);
+    }
+
     const res = await fetch(`/api/pending-schedules/${batchId}`);
     const data = await res.json();
     
     // --- Set batch-level academicYear and semester ---
-    this.academicYear = data.academicYear || data.batch?.academicYear || "Unknown Year";
-    this.semester = data.semester || data.batch?.semester || "Unknown Semester";
+    // Try multiple possible sources for academicYear and semester
+    this.academicYear = data.academicYear || 
+                       data.batch?.academicYear || 
+                       data.batch?.academic_year ||
+                       data.academic_year ||
+                       "Unknown Year";
+    
+    this.semester = data.semester || 
+                   data.batch?.semester || 
+                   data.batch?.semester_id ||
+                   data.semester_id ||
+                   "Unknown Semester";
+    
+    // Debug: Log the loaded values
+    console.log('Loaded from API - academicYear:', this.academicYear);
+    console.log('Loaded from API - semester:', this.semester);
+    console.log('API response data:', data);
+    console.log('Available keys in data:', Object.keys(data));
+    if (data.batch) {
+      console.log('Available keys in data.batch:', Object.keys(data.batch));
+    }
 
     let grouped = Object.values(data.grouped || {}).flat();
     let unassigned = data.unassigned || [];
@@ -1099,7 +1205,13 @@ async openBatch(batchId) {
         ? s.possible_assignments
         : s.payload?.possible_assignments || [];
 
-      return {
+      // Normalize possible_assignments to ensure faculty_id is present
+      const normalizedAssignments = baseAssignments.map(pa => ({
+        ...pa,
+        faculty_id: pa.faculty_id || pa.id || null
+      }));
+
+      const mappedSchedule = {
         id: s._localId || s.id || `${s.courseCode || s.subject}-${Math.random()}`,
         subject_code: s.courseCode || s.course_code || "",
         faculty: s.faculty || s.faculty_name || "Unknown",
@@ -1111,17 +1223,44 @@ async openBatch(batchId) {
         course_section: s.courseSection || s.course_section || "",
         units: Number(s.units || 0),
         payload: s.payload || null,
-        possible_assignments: [...baseAssignments],
-        _original_possible_assignments: [...baseAssignments],
+        possible_assignments: [...normalizedAssignments],
+        _original_possible_assignments: [...normalizedAssignments],
         academicYear: s.academicYear || this.academicYear,
         semester: s.semester || this.semester,
       };
+
+      // Debug: Log the first few schedules to see their academicYear and semester values
+      if (Math.random() < 0.1) { // Log only 10% of schedules to avoid spam
+        console.log('Mapped schedule academicYear:', mappedSchedule.academicYear, 'from s.academicYear:', s.academicYear, 'fallback to this.academicYear:', this.academicYear);
+        console.log('Mapped schedule semester:', mappedSchedule.semester, 'from s.semester:', s.semester, 'fallback to this.semester:', this.semester);
+      }
+
+      return mappedSchedule;
     };
 
     this.pendingSchedules = [
       ...grouped.map(mapSchedule),
       ...unassigned.map(mapSchedule),
     ];
+
+    // If academicYear or semester are still "Unknown", try to get them from individual schedules
+    if (this.academicYear === "Unknown Year" || this.semester === "Unknown Semester") {
+      for (const schedule of this.pendingSchedules) {
+        if (this.academicYear === "Unknown Year" && schedule.academicYear && schedule.academicYear !== "Unknown Year") {
+          this.academicYear = schedule.academicYear;
+        }
+        if (this.semester === "Unknown Semester" && schedule.semester && schedule.semester !== "Unknown Semester") {
+          this.semester = schedule.semester;
+        }
+        // Break if we found both
+        if (this.academicYear !== "Unknown Year" && this.semester !== "Unknown Semester") {
+          break;
+        }
+      }
+    }
+
+    console.log('Final academicYear after fallback:', this.academicYear);
+    console.log('Final semester after fallback:', this.semester);
 
     // --- Reset and rebuild used slots/rooms ---
     this.usedSlots = {};
@@ -1170,6 +1309,39 @@ async openBatch(batchId) {
       }
     }
 
+    // Normalize faculty_id for assigned rows: use assigned_suggestion or match possible_assignments
+    for (const s of this.pendingSchedules) {
+      if (s.faculty && s.faculty !== 'Unknown') {
+        if (s.assigned_faculty_id || s.faculty_id) continue;
+
+        if (s.assigned_suggestion && s.assigned_suggestion.faculty_id) {
+          s.assigned_faculty_id = s.assigned_suggestion.faculty_id;
+          s.faculty_id = s.assigned_suggestion.faculty_id;
+          continue;
+        }
+
+        const opts = Array.isArray(s.possible_assignments) ? s.possible_assignments : [];
+        const match = opts.find(opt => {
+          const sameName = (opt.faculty_name || opt.faculty || '').toString().trim().toLowerCase() === (s.faculty || '').toString().trim().toLowerCase();
+          const sameTime = this.normalizeSlotLabel(opt.time_slot_label || opt.time || '') === this.normalizeSlotLabel(s.time || '');
+          const sameRoom = (opt.room_name || opt.classroom || '').toString().trim().toLowerCase() === (s.classroom || '').toString().trim().toLowerCase();
+          return sameName && (sameTime || sameRoom);
+        });
+        if (match && match.faculty_id) {
+          s.assigned_faculty_id = match.faculty_id;
+          s.faculty_id = match.faculty_id;
+          continue;
+        }
+
+        // Fallback: resolve by professors list name->id map
+        const key = (s.faculty || '').toString().trim().toLowerCase();
+        if (this.professorsByName[key] && this.professorsByName[key].id != null) {
+          s.assigned_faculty_id = this.professorsByName[key].id;
+          s.faculty_id = this.professorsByName[key].id;
+        }
+      }
+    }
+
     this.showModal = true;
     this.refreshAISuggestions();
     this.$forceUpdate();
@@ -1206,21 +1378,53 @@ async finalizeSchedule() {
   this.show();
 
   try {
+    // Debug: Log academicYear and semester values
+    console.log('Batch academicYear:', this.academicYear);
+    console.log('Batch semester:', this.semester);
+    console.log('Sample schedule academicYear:', this.pendingSchedules[0]?.academicYear);
+    console.log('Sample schedule semester:', this.pendingSchedules[0]?.semester);
+
+    // Build finalize payload including faculty_id
     const schedulePayload = this.pendingSchedules.map(s => ({
       faculty: s.faculty,
+      faculty_id: s.assigned_faculty_id || s.faculty_id || null,
       subject: s.subject,
       time: s.time,
       classroom: s.classroom,
       course_code: s.course_code || s.subject_code || null,
       course_section: s.course_section || null,
       units: s.units || 0,
-      academicYear: s.academicYear, // guaranteed
-      semester: s.semester,         // guaranteed
-      payload: { ...s.payload, unassigned: [] },
+      academicYear: s.academicYear || this.academicYear, // fallback to batch level
+      semester: s.semester || this.semester,             // fallback to batch level
+      payload: { ...(s.payload || {}), unassigned: [] },
       batch_id: this.selectedBatch,
       status: 'finalized',
       user_id: this.currentUserId || null,
     }));
+
+    // Debug: Log the payload being sent
+    console.log('Finalize payload sample:', schedulePayload[0]);
+    console.log('Request body academicYear:', this.academicYear);
+    console.log('Request body semester:', this.semester);
+
+    // Validate faculty_id presence to avoid DB constraint errors
+    const missing = schedulePayload.filter(r => !r.faculty_id);
+    if (missing.length) {
+      const missingSubjects = missing.map(r => r.subject || 'Unknown Subject').join(', ');
+      alert(`Cannot finalize: ${missing.length} row(s) are missing faculty IDs.\n\nMissing faculty IDs for subjects: ${missingSubjects}\n\nPlease assign a faculty for each subject before finalizing.`);
+      this.hide();
+      return;
+    }
+
+    // Validate academicYear and semester presence
+    const missingAcademicYear = schedulePayload.filter(r => !r.academicYear || r.academicYear === 'Unknown Year');
+    const missingSemester = schedulePayload.filter(r => !r.semester || r.semester === 'Unknown Semester');
+    
+    if (missingAcademicYear.length > 0 || missingSemester.length > 0) {
+      alert(`Cannot finalize: Missing academic year or semester information.\n\nMissing academic year: ${missingAcademicYear.length} rows\nMissing semester: ${missingSemester.length} rows\n\nPlease ensure all schedules have proper academic year and semester values.`);
+      this.hide();
+      return;
+    }
 
     const res = await fetch(`/api/finalized-schedules`, {
       method: "POST",
@@ -1559,6 +1763,52 @@ async finalizeSchedule() {
 .unassigned-quick { display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px dashed #f0f0f0 }
 .ua-left { font-weight:600 }
 .ua-suggestions-inline { display:grid; gap:8px; grid-template-columns: 1fr; align-items:start }
+
+/* Academic Info Styles */
+.academic-info {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+
+.input-group label {
+  font-weight: 600;
+  min-width: 120px;
+  color: #2c3e50;
+}
+
+.academic-input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 150px;
+}
+
+.academic-input:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.academic-warning {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-top: 10px;
+  border: 1px solid #f5c6cb;
+}
 
 /* Modal overlay centered and covering the page */
 .modal-overlay {

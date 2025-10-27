@@ -84,6 +84,24 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         else:
             semester_id = None
 
+    # Only allow semester_id 1 and 2, reject others
+    if semester_id not in [1, 2]:
+        print(f"[ERROR] Invalid semester_id: {semester_id}. Only semester_id 1 and 2 are allowed.", file=sys.stderr)
+        return {
+            "success": False,
+            "message": f"Invalid semester_id: {semester_id}. Only semester_id 1 and 2 are allowed.",
+            "schedule": [],
+            "unassigned": [],
+            "summary": {
+                "total_curriculum_subjects": 0,
+                "total_assigned": 0,
+                "total_unassigned": 0,
+                "assigned_ids": [],
+                "unassigned_ids": []
+            },
+            "conflicts": []
+        }
+
     print(f"[DEBUG] semester_id before query: {semester_id}", file=sys.stderr)
 
     # -----------------------------
@@ -137,16 +155,18 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             c.year AS course_year,
             f.name AS faculty_name
         FROM subjects s
-        LEFT JOIN courses c ON s.course_id = c.id
+        INNER JOIN courses c ON s.course_id = c.id
         LEFT JOIN professors f ON f.department = c.name
         WHERE s.semester_id = %s
         AND s.year_level = c.year
+        AND s.course_id IS NOT NULL
     """
     params = [semester_id]
 
     cursor.execute(subject_query, params)
     subjects_rows = cursor.fetchall() or []
 
+    print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id", file=sys.stderr)
 
     # Normalize subjects as before
     subjects = []
@@ -164,12 +184,11 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         norm['course_name'] = course_obj.get('name') if course_obj else None
         subjects.append(norm)
 
+    print(f"[DEBUG] Normalized {len(subjects)} subjects after processing", file=sys.stderr)
 
-    # Only include subjects with valid course_id
-    curriculum_subjects = [
-        s for s in subjects
-        if s.get('course_id') not in (None, '', 0)
-    ]
+
+    # All subjects from the query already have valid course_id due to INNER JOIN
+    curriculum_subjects = subjects
 
     print(f"[DEBUG] Loaded {len(curriculum_subjects)} valid subjects for semester {semester_id} and matching course year.", file=sys.stderr)
 
@@ -255,9 +274,13 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         if isinstance(raw, list):
             parts = raw
         elif isinstance(raw, str) and raw.strip():
+            # Avoid eval for safety; support JSON array or comma-separated
             try:
-                parsed_eval = eval(raw)
-                parts = list(parsed_eval) if isinstance(parsed_eval, (list, tuple)) else [p.strip() for p in raw.split(",") if p.strip()]
+                parsed_json = json.loads(raw)
+                if isinstance(parsed_json, (list, tuple)):
+                    parts = [str(p).strip() for p in parsed_json if str(p).strip()]
+                else:
+                    parts = [p.strip() for p in raw.split(",") if p.strip()]
             except Exception:
                 parts = [p.strip() for p in raw.split(",") if p.strip()]
         ranges = []
@@ -277,13 +300,70 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # -----------------------------
     # SUBJECT DEPT + FACULTY BY DEPT AND TYPE
     # -----------------------------
-    def get_subject_department(subject_code):
-        m = re.match(r'([A-Z]+)', subject_code or "")
-        return m.group(1) if m else None
+    # -----------------------------
+    # Hybrid subject department inference
+    # -----------------------------
+    department_prefix_map = {
+        "ITP": "Information Technology",
+        "IT": "Information Technology",
+        "ITC": "Information Technology",
+        "ACC": "Accounting",
+        "ACE": "Accounting",
+        "MKT": "Marketing",
+        "ENT": "Entrepreneurship",
+        "EN": "Entrepreneurship",
+        "ENE": "Entrepreneurship",
+        "ENS": "Entrepreneurship",
+        "ENC": "Entrepreneurship",
+        "PE": "Physical Education",
+        "PED": "Physical Education",
+        "NSTP": "NSTP",
+        "GE": "General Education",
+        "GEE": "General Education",
+        "MATH": "General Education",
+    }
 
+    department_keywords_map = {
+        "Information Technology": ["SOFTWARE", "COMPUTER", "PROGRAMMING", "IT", "ALGORITHMS"],
+        "Accounting": ["ACCOUNTING", "FINANCE", "AUDITING", "BOOKKEEPING"],
+        "Marketing": ["MARKETING", "ADVERTISING", "SALES"],
+        "Entrepreneurship": ["ENTREPRENEUR", "BUSINESS PLAN", "STARTUP"],
+        "Physical Education": ["PE", "PHYSICAL EDUCATION", "SPORT", "HEALTH"],
+        "NSTP": ["NSTP"],
+        "General Education": ["MATH", "MATHEMATICS", "HUMANITIES", "PHILOSOPHY", "SELF", "WORLD", "ETHICS", "SCIENCE", "ARTS", "SOCIAL STUDIES", "HISTORY"],
+    }
+
+
+    def infer_subject_department(subject_code, subject_title):
+        subject_code = (subject_code or "").upper()
+        subject_title = (subject_title or "").upper()
+
+        # Score departments
+        scores = defaultdict(int)
+
+        # 1️⃣ Prefix match
+        for prefix, dept in department_prefix_map.items():
+            if subject_code.startswith(prefix):
+                scores[dept] += 2  # prefix match = stronger signal
+
+        # 2️⃣ Keyword matches (can match multiple keywords)
+        for dept, keywords in department_keywords_map.items():
+            for kw in keywords:
+                if re.search(rf'\b{re.escape(kw)}\b', subject_title):
+                    scores[dept] += 1
+
+        if scores:
+            # Pick department with highest score
+            best_dept = max(scores, key=lambda k: scores[k])
+            return best_dept
+        else:
+            return "General Education"  # default fallback
+    # Step 1: infer departments for all subjects
     for s in subjects:
-        s['dept'] = get_subject_department(s.get('subject_code') or "")
-
+        
+        s['dept'] = infer_subject_department(s.get('subject_code'), s.get('subject_title'))
+        s['assigned'] = False  # track assignment
+    
     # Separate faculty by department AND type
     faculty_by_dept_and_type = defaultdict(lambda: defaultdict(list))
     for f in faculty:
@@ -295,70 +375,144 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # -----------------------------
     # Build allowed assignment combos with STRICT load limits
     # -----------------------------
+   # -----------------------------
+    # BUILD ALLOWED ASSIGNMENT COMBOS (DEPARTMENT-FIRST + LAB HANDLING)
+    # -----------------------------
     allowed_combos = {}
     subject_feasible_reasons = defaultdict(list)
     combos_by_subject = defaultdict(list)
 
+    # 1️⃣ Group subjects by department
+    subjects_by_dept = defaultdict(list)
+    for s in curriculum_subjects:
+        subjects_by_dept[s['dept']].append(s)
+
+    # 2️⃣ Track total subjects per department per faculty
+    faculty_total_dept_counts = defaultdict(lambda: defaultdict(int))
+    faculty_assigned_dept_counts = defaultdict(lambda: defaultdict(int))
+    for dept, subj_list in subjects_by_dept.items():
+        for f in faculty_by_dept_and_type.get(dept, {}).get('full_time', []) + \
+                faculty_by_dept_and_type.get(dept, {}).get('part_time', []):
+            faculty_total_dept_counts[f['id']][dept] = len(subj_list)
+
+    # 3️⃣ Build allowed combos with STRICT PRIORITY PHASES
+    # Phase A: only perfect matches (dept + prefix on course code and/or subject-name keyword)
+    perfect_match_pairs = defaultdict(list)  # sid -> list of faculty ids
     for subj in curriculum_subjects:
-        course_obj = course_by_id.get(subj.get('course_id'))
-        students = (course_obj.get('students') if course_obj and course_obj.get('students') is not None else None) or 1
+        sid = subj.get('id')
+        subj_dept = (subj.get('dept') or '').lower()
+        subj_code = (subj.get('subject_code') or '').upper()
+        subj_title = (subj.get('subject_title') or '').upper()
+        for fobj in faculty:
+            fid = fobj.get('id')
+            faculty_dept = (fobj.get('department') or fobj.get('dept') or '').lower()
+            if not faculty_dept or faculty_dept != subj_dept:
+                continue
+            prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
+            keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+            if prefix_match or keyword_match:
+                perfect_match_pairs[sid].append(fid)
+
+    # Build combos ONLY for perfect matches first
+    for subj in curriculum_subjects:
         sid = subj.get('id')
         subj_dept = subj.get('dept')
-        
-        # Get ALL faculty candidates first (we'll filter by load in the constraints)
-        faculty_candidates = []
-        
-        # Include all faculty from same department first
-        if subj_dept and subj_dept in faculty_by_dept_and_type:
-            faculty_candidates.extend(faculty_by_dept_and_type[subj_dept]['full_time'])
-            faculty_candidates.extend(faculty_by_dept_and_type[subj_dept]['part_time'])
-        
-        # Then include any other faculty as fallback
-        for fobj in faculty:
-            if fobj not in faculty_candidates:
-                faculty_candidates.append(fobj)
+        subj_code = (subj.get('subject_code') or '').upper()
+        subj_title = (subj.get('subject_title') or '').upper()
+        course_obj = course_by_id.get(subj.get('course_id'))
+        students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
+        lec_units_val = float(subj.get('lec_units', 0) or 0)
+        lab_units_val = float(subj.get('lab_units', 0) or 0)
 
-        for fobj in faculty_candidates:
+        candidate_fids = perfect_match_pairs.get(sid, [])
+        for fobj in faculty:
             fid = fobj.get('id')
+            if fid not in candidate_fids:
+                continue
             for r in rooms:
                 rid = r.get('id')
                 cap = r.get('capacity') or r.get('max_load') or None
-                if cap is not None:
-                    try:
-                        if int(cap) < int(students):
-                            continue
-                    except Exception:
-                        pass
-
-                # --- 🔍 Enforce Lecture/Laboratory rule ---
-                room_name = (r.get('name') or "").lower()
-                lec_units = subj.get('lec_units', None)
-                lab_units = subj.get('lab_units', None)
-
-                # Normalize numeric values
-                try:
-                    lab_units_val = float(lab_units or 0)
-                    lec_units_val = float(lec_units or 0)
-                except Exception:
-                    lab_units_val = lec_units_val = 0
-
-                if lab_units_val > 0:
-                    # Must be a laboratory room
-                    if "lab" not in room_name and "laboratory" not in room_name:
-                        continue
-                elif lec_units_val > 0 or lab_units_val == 0:
-                    # Must be a lecture room
-                    if "lab" in room_name or "laboratory" in room_name:
-                        continue
-
-                # --- Continue to time slot assignment ---
+                if cap is not None and int(cap) < students:
+                    continue
+                room_name = (r.get('name') or '').lower()
+                if lab_units_val > 0 and ('lab' not in room_name and 'laboratory' not in room_name):
+                    continue
+                if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
+                    continue
                 for t in time_slots:
                     if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                         continue
                     allowed_combos[(sid, fid, rid, t)] = True
                     combos_by_subject[sid].append((fid, rid, t))
 
+    # Phase B: fallback only if no perfect combos exist for the subject OR faculty still need load later
+    for subj in curriculum_subjects:
+        sid = subj.get('id')
+        subj_dept = (subj.get('dept') or '').lower()
+        subj_code = (subj.get('subject_code') or '').upper()
+        subj_title = (subj.get('subject_title') or '').upper()
+        course_obj = course_by_id.get(subj.get('course_id'))
+        students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
+        lec_units_val = float(subj.get('lec_units', 0) or 0)
+        lab_units_val = float(subj.get('lab_units', 0) or 0)
 
+        # If there are already perfect combos, skip adding cross-dept here for this subject
+        has_perfect = bool(combos_by_subject.get(sid))
+
+        # Fallback priority: dept + subject name match (not necessarily prefix), then dept only
+        for fobj in faculty:
+            fid = fobj.get('id')
+            faculty_dept = (fobj.get('department') or fobj.get('dept') or '').lower()
+            if faculty_dept == subj_dept:
+                # skip if already in perfect set for this subject
+                if fid in perfect_match_pairs.get(sid, []):
+                    continue
+                # Dept-only fallback allowed, but lower priority; still build combos (solver objective handles priority)
+                for r in rooms:
+                    rid = r.get('id')
+                    cap = r.get('capacity') or r.get('max_load') or None
+                    if cap is not None and int(cap) < students:
+                        continue
+                    room_name = (r.get('name') or '').lower()
+                    if lab_units_val > 0 and ('lab' not in room_name and 'laboratory' not in room_name):
+                        continue
+                    if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
+                        continue
+                    for t in time_slots:
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                            continue
+                        allowed_combos[(sid, fid, rid, t)] = True
+                        combos_by_subject[sid].append((fid, rid, t))
+
+        # Cross-department fallback only if still no combos (to reduce unassigned) — very low priority
+        if not combos_by_subject.get(sid):
+            for fobj in faculty:
+                fid = fobj.get('id')
+                faculty_dept = (fobj.get('department') or fobj.get('dept') or '').lower()
+                if faculty_dept == subj_dept:
+                    continue
+                # Allow cross dept only if subject title keywords overlap faculty dept keywords
+                keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+                if not keyword_match:
+                    continue
+                for r in rooms:
+                    rid = r.get('id')
+                    cap = r.get('capacity') or r.get('max_load') or None
+                    if cap is not None and int(cap) < students:
+                        continue
+                    room_name = (r.get('name') or '').lower()
+                    if lab_units_val > 0 and ('lab' not in room_name and 'laboratory' not in room_name):
+                        continue
+                    if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
+                        continue
+                    for t in time_slots:
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                            continue
+                        allowed_combos[(sid, fid, rid, t)] = True
+                        combos_by_subject[sid].append((fid, rid, t))
+
+
+        # --- 3d. Feasibility checks ---
         if not combos_by_subject[sid]:
             if not faculty_candidates:
                 subject_feasible_reasons[sid].append("no_faculty_for_dept")
@@ -368,6 +522,121 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     subject_feasible_reasons[sid].append("no_room_with_capacity")
                 else:
                     subject_feasible_reasons[sid].append("faculty_unavailable_for_all_slots")
+        # -----------------------------
+    # 4️⃣ FILL REMAINING SUBJECTS — CROSS-DEPARTMENT & GE FALLBACK
+    # -----------------------------
+    # 🔧 Compute total units already assigned per faculty
+    faculty_total_units = defaultdict(float)
+    for subj in curriculum_subjects:
+        sid = subj.get('id')
+        lec = float(subj.get('lec_units', 0) or 0)
+        lab = float(subj.get('lab_units', 0) or 0)
+        total_units = lec + lab
+
+        # find if subject already assigned (optional, if you track assignments)
+        for fid, rid, t in combos_by_subject[sid]:
+            faculty_total_units[fid] += total_units
+
+    # -----------------------------
+    # 4️⃣ FILL REMAINING SUBJECTS — EXPANDED FALLBACK TO HELP REACH MAX LOAD
+    # -----------------------------
+    unassigned_subjects = [s for s in curriculum_subjects if s['id'] not in combos_by_subject or not combos_by_subject[s['id']]]
+
+    # Track conservative current load estimate (units) based on potential combos we added above
+    faculty_total_units = defaultdict(float)
+
+    if unassigned_subjects:
+        for subj in unassigned_subjects:
+            sid = subj['id']
+            subj_dept = subj['dept']
+            subj_title = subj.get('subject_title', "").upper()
+            subj_students = int(course_by_id.get(subj.get('course_id'), {}).get('students', 1) or 1)
+            subj_units = float(subj.get('units') or (subj.get('lec_units', 0) or 0) + (subj.get('lab_units', 0) or 0))
+
+            # Consider all faculty under their max load for broader fallback
+            fallback_candidates = []
+            for f in faculty:
+                fid = f['id']
+                max_load = float(f.get('max_load', 20 if f.get('is_full_time') else 6))
+                current_load = float(faculty_total_units.get(fid, 0))
+                remaining_load = max_load - current_load
+                if remaining_load + 1e-6 >= subj_units:  # allow tiny epsilon
+                    score = 0
+                    faculty_dept = f.get('department') or ''
+                    
+                    # Perfect match scoring (highest priority)
+                    if faculty_dept.lower() == subj_dept.lower():
+                        # Check for prefix match (highest priority)
+                        prefix_match = False
+                        for prefix in department_prefix_map.keys():
+                            if subj_code.startswith(prefix):
+                                prefix_match = True
+                                break
+                        
+                        if prefix_match:
+                            score += 1000  # Highest priority for prefix match
+                        else:
+                            # Check for keyword match
+                            keyword_match = False
+                            for kw in department_keywords_map.get(faculty_dept, []):
+                                if re.search(rf'\b{re.escape(kw)}\b', subj_title):
+                                    keyword_match = True
+                                    break
+                            
+                            if keyword_match:
+                                score += 500  # High priority for keyword match
+                            else:
+                                score += 100  # Department match only
+                    else:
+                        # Cross-department keyword match
+                        for kw in department_keywords_map.get(faculty_dept, []):
+                            if re.search(rf'\b{re.escape(kw)}\b', subj_title):
+                                score += 10
+                    
+                    # prefer full-time to fill loads, but still use part-time when needed
+                    if f.get('is_full_time'):
+                        score += 5
+                    # lower score when very close to max (to spread a bit)
+                    score -= int(max(0, (max_load - (current_load + subj_units)) < 1)) * 2
+                    fallback_candidates.append((score, f))
+
+            fallback_candidates.sort(key=lambda x: -x[0])
+
+            # Try to add feasible combos for these fallback faculty
+            created_any = False
+            for score, fobj in fallback_candidates:
+                fid = fobj['id']
+                for r in rooms:
+                    rid = r.get('id')
+                    cap = r.get('capacity') or r.get('max_load') or None
+                    if cap is not None and int(cap) < subj_students:
+                        continue
+
+                    room_name = (r.get('name') or '').lower()
+                    lec_units_val = float(subj.get('lec_units', 0) or 0)
+                    lab_units_val = float(subj.get('lab_units', 0) or 0)
+                    if lab_units_val > 0 and ('lab' not in room_name and 'laboratory' not in room_name):
+                        continue
+                    if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
+                        continue
+
+                    for t in time_slots:
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                            continue
+                        allowed_combos[(sid, fid, rid, t)] = True
+                        combos_by_subject[sid].append((fid, rid, t))
+                        subject_feasible_reasons[sid].append('fallback_assignment')
+                        faculty_total_units[fid] += subj_units
+                        created_any = True
+                        break
+                    if created_any:
+                        break
+                if created_any:
+                    break
+
+            if not created_any and not combos_by_subject[sid]:
+                subject_feasible_reasons[sid].append('no_available_faculty_even_in_fallback')
+
 
     print(f"Allowed combos built: {len(allowed_combos)}", file=sys.stderr)
 
@@ -464,15 +733,25 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     model.Add(total_assigned == sum(x.values()))
     objective_terms.append(total_assigned * 10000)  # Very high priority to assign subjects
 
-    # 2. Department matching (high priority)
+    # 2. Perfect matching (highest priority) — enforce: dept + prefix and/or subject name keyword
     for (sid, fid, rid, t), var in x.items():
         subj = next((s for s in curriculum_subjects if s['id'] == sid), None)
         fobj = next((f for f in faculty if f['id'] == fid), None)
         if subj and fobj:
-            subj_dept = subj.get('dept')
-            faculty_dept = fobj.get("department") or fobj.get("dept") or fobj.get("year") or None
+            subj_dept = (subj.get('dept') or '').lower()
+            subj_code = (subj.get('subject_code') or '').upper()
+            subj_title = (subj.get('subject_title') or '').upper()
+            faculty_dept = (fobj.get('department') or fobj.get('dept') or fobj.get('year') or '').lower()
+            
             if subj_dept and faculty_dept and subj_dept == faculty_dept:
-                objective_terms.append(var * 5000)  # High bonus for department match
+                prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
+                keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+                if prefix_match:
+                    objective_terms.append(var * 30000)
+                elif keyword_match:
+                    objective_terms.append(var * 22000)
+                else:
+                    objective_terms.append(var * 8000)
 
     # 3. Full-time faculty preference (medium priority)
     for (sid, fid, rid, t), var in x.items():
@@ -480,27 +759,27 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         if fobj and fobj.get('is_full_time', True):
             objective_terms.append(var * 2000)  # Moderate bonus for full-time
 
-    # 4. Load balancing - encourage full-time faculty to reach their target load (in units)
+    # 4. Load shaping — push faculty loads toward their max (without exceeding)
     for fobj in faculty:
-        if fobj.get('is_full_time', True):
-            fid = fobj['id']
-            load_var = faculty_load_vars[fid]
-            target_load = fobj.get('max_load', 20)  # Target in units
-            
-            # Reward for reaching target load (but not exceeding)
-            objective_terms.append(load_var * 10)  # Small reward per unit
+        fid = fobj['id']
+        load_var = faculty_load_vars[fid]
+        max_load = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
+        # Reward proximity to max load: larger coefficient to reduce unassigned where possible
+        objective_terms.append(load_var * 50)
 
-    # 5. Reward part-time faculty utilization
-    for fobj in faculty:
-        if not fobj.get('is_full_time', True):
-            fid = fobj['id']
-            load_var = faculty_load_vars[fid]
-            # Reward part-time faculty for each unit assigned
-            objective_terms.append(load_var * 15)  # Slightly higher reward to encourage usage
+    # Add explicit penalty for cross-department assignments to reinforce preference
+    for (sid, fid, rid, t), var in x.items():
+        subj = next((s for s in curriculum_subjects if s['id'] == sid), None)
+        fobj = next((f for f in faculty if f['id'] == fid), None)
+        if subj and fobj:
+            subj_dept = subj.get('dept')
+            faculty_dept = fobj.get('department')
+            if subj_dept and faculty_dept and subj_dept != faculty_dept:
+                objective_terms.append(var * -3000)
 
     # Maximize the objective
     model.Maximize(sum(objective_terms))
-
+    
     # -----------------------------
     # SOLVE
     # -----------------------------
@@ -724,101 +1003,108 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         print(f"[ERROR] Could not fetch course data: {e}", file=sys.stderr)
         course_lookup = {}
 
+    # Precompute parsed slot info once to avoid repeated parsing
+    parsed_slot_info = {t: parse_slot_label(t) for t in time_slots}
+
     for u in unassigned:
         sid = u['subject_id']
-
-        # Find the corresponding subject in the curriculum_subjects list
         subj_obj = next((s for s in curriculum_subjects if s.get('id') == sid), None)
+        if not subj_obj:
+            continue
 
-        # --- Extract subject and course details ---
-        subj_course_id = subj_obj.get('course_id') if subj_obj else None
-        subj_course_code = subj_obj.get('subject_code') if subj_obj else None
-        subj_units = subj_obj.get('units', 3) if subj_obj else (u.get('units') or 3)
-        subj_dept = subj_obj.get('dept') if subj_obj else None
+        subj_course_id = subj_obj.get('course_id')
+        subj_course_code = subj_obj.get('subject_code')
+        subj_units = subj_obj.get('units', 3)
+        subj_dept = subj_obj.get('dept')
 
-        # --- Fetch course info dynamically from DB ---
-        subj_course_section = "-"
-        subj_course_name = None
+        subj_course_section = course_lookup.get(subj_course_id, {}).get('name', '-') if subj_course_id else '-'
+        subj_course_name = ("Year " + str(course_lookup.get(subj_course_id, {}).get('year', '-'))) if subj_course_id else None
 
-        if subj_course_id and subj_course_id in course_lookup:
-            course_data = course_lookup[subj_course_id]
-            subj_course_section = course_lookup.get(subj_course_id, {}).get('name', '-') if subj_course_id else "-"
-            subj_course_name = f"Year {course_data.get('year', '-')}"  # optional descriptive name
-
-        candidates_by_faculty = defaultdict(list)
-
-        # Iterate through the possible combinations of faculty and rooms for the subject
-        for fid, rid, t in combos_by_subject.get(sid, []):
-            fobj = next((f for f in faculty if f.get('id') == fid), None)
-            robj = next((r for r in rooms if r.get('id') == rid), None)
-            if not fobj or not robj:
-                continue
-
-            # Skip if faculty or room already booked
-            if t in occupied_slots_by_faculty[fid] or t in occupied_slots_by_room[rid]:
-                continue
-
-            try:
-                slot_struct = parse_slot_label(t)
-            except Exception:
-                slot_struct = {"day": None, "start": None, "end": None}
-
-            faculty_dept = fobj.get('department')
-            dept_match = (subj_dept and faculty_dept and subj_dept == faculty_dept) or not subj_dept
-            room_cap = robj.get('capacity')
-            faculty_current = current_load_by_faculty.get(fid, 0)
+        # Build suggestions per faculty to ensure coverage, with per-faculty caps and overload options
+        MAX_PER_FACULTY = 25
+        MAX_PER_FACULTY_OVERLOAD = 10
+        MAX_GLOBAL_SUGGESTIONS = 800
+        merged = []
+        for fobj in faculty:
+            fid = fobj['id']
+            faculty_current_load = current_load_by_faculty.get(fid, 0)
             faculty_max = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
+            dept_match = subj_dept == fobj.get('department')
 
-            # Scoring logic
-            score = 0
-            if dept_match:
-                score += 10000
-            if faculty_max is not None and (faculty_current + subj_units) > faculty_max:
-                score -= 5000
-            if room_cap:
-                try:
-                    score += int(room_cap)
-                except Exception:
-                    pass
-            if slot_struct.get("start") is not None:
-                score -= slot_struct.get("start")
+            # In-limit heap
+            in_heap = []
+            # Overload heap (marked for override use)
+            over_heap = []
+            counter = itertools.count()
 
-            candidate = {
-                "faculty_id": fid,
-                "faculty_name": fobj.get('name'),
-                "faculty_department": faculty_dept,
-                "faculty_type": "full_time" if fobj.get('is_full_time') else "part_time",
-                "faculty_current_load": faculty_current,
-                "faculty_max_load": faculty_max,
-                "room_id": rid,
-                "room_name": robj.get('name'),
-                "room_capacity": room_cap,
-                "time_slot_label": t,
-                "time_day": slot_struct.get("day"),
-                "time_start": slot_struct.get("start"),
-                "time_end": slot_struct.get("end"),
-                "department_match": dept_match,
-                "score": score,
-            }
+            for r in rooms:
+                rid = r['id']
+                room_cap = r.get('capacity') or r.get('max_load') or 0
+                if room_cap < 1:
+                    continue
+                for t in time_slots:
+                    if t in occupied_slots_by_faculty[fid] or t in occupied_slots_by_room[rid]:
+                        continue
+                    if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                        continue
 
-            heapq.heappush(candidates_by_faculty[fid], (-score, next(heap_counter), candidate))
+                    info = parsed_slot_info[t]
+                    score = 0
+                    if dept_match:
+                        score += 10000
+                    score += room_cap
+                    score -= info.get('start', 0)
 
-        # Flatten the top N candidates
-        combined = []
-        for fid, heap in candidates_by_faculty.items():
-            top_n = heapq.nsmallest(top_per_faculty, heap)
-            for _, _, cand in top_n:
-                combined.append(cand)
+                    base_item = {
+                        'faculty_id': fid,
+                        'faculty_name': fobj.get('name'),
+                        'faculty_department': fobj.get('department'),
+                        'faculty_type': 'full_time' if fobj.get('is_full_time') else 'part_time',
+                        'faculty_current_load': faculty_current_load,
+                        'faculty_max_load': faculty_max,
+                        'room_id': rid,
+                        'room_name': r.get('name'),
+                        'room_capacity': room_cap,
+                        'time_slot_label': t,
+                        'time_day': info.get('day'),
+                        'time_start': info.get('start'),
+                        'time_end': info.get('end'),
+                        'department_match': dept_match,
+                        'score': score,
+                    }
 
-        possible = sorted(combined, key=lambda x: x.get("score", 0), reverse=True)
-        print(f"[DEBUG] Subject {sid} ({subj_course_code or 'NoCode'}) → Possible={len(possible)}",file=sys.stderr
-            )
-        # ✅ Add subject details including course info
-        u["subject_display"] = f"{(subj_course_code or '')} - {(u.get('subject_title') or subj_obj.get('subject_title') or 'Untitled')}"
-        u["subject_code"] = subj_course_code
-        u["course_section"] = subj_course_section
-        u["course_name"] = subj_course_name
-        u["possible_assignments"] = possible
+                    would_overload = (faculty_current_load + subj_units) > faculty_max
+                    idx = next(counter)
+                    if not would_overload:
+                        if len(in_heap) < MAX_PER_FACULTY:
+                            heapq.heappush(in_heap, (score, idx, base_item))
+                        else:
+                            if in_heap[0][0] < score:
+                                heapq.heapreplace(in_heap, (score, idx, base_item))
+                    else:
+                        overload_amount = (faculty_current_load + subj_units) - faculty_max
+                        item = dict(base_item)
+                        item['would_exceed_max_load'] = True
+                        item['overload_units'] = overload_amount
+                        if len(over_heap) < MAX_PER_FACULTY_OVERLOAD:
+                            heapq.heappush(over_heap, (score, idx, item))
+                        else:
+                            if over_heap[0][0] < score:
+                                heapq.heapreplace(over_heap, (score, idx, item))
+
+            merged.extend([it[2] for it in in_heap])
+            merged.extend([it[2] for it in over_heap])
+
+        # Apply global cap after sorting (keep highest score first)
+        merged.sort(key=lambda x: x['score'], reverse=True)
+        if len(merged) > MAX_GLOBAL_SUGGESTIONS:
+            merged = merged[:MAX_GLOBAL_SUGGESTIONS]
+        u['possible_assignments'] = merged
+        u['subject_display'] = f"{(subj_course_code or '')} - {subj_obj.get('subject_title', 'Untitled')}"
+        u['subject_code'] = subj_course_code
+        u['course_section'] = subj_course_section
+        u['course_name'] = subj_course_name
+
 
     # --- SUMMARY BLOCK ---
     total_curriculum = len(curriculum_subjects)

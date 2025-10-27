@@ -1099,11 +1099,21 @@ async saveSchedule(mode = 'pending') {
 
   // Helper to build schedule array
   const buildScheduleArray = (payload, includeUnassigned = false) => {
+    const resolveFacultyId = (row) => {
+      if (row.faculty_id) return row.faculty_id;
+      const name = (row.faculty || row.faculty_name || '').toString().trim();
+      if (!name) return null;
+      const match = (this.facultyList || []).find(f => (f.name || '').toString().trim() === name);
+      return match ? match.id : null;
+    };
+
     const arr = [];
     (Object.entries(this.groupedSchedules) || []).forEach(([faculty, entries]) => {
       entries.forEach(r => {
+        const fid = resolveFacultyId(r);
         arr.push({
           faculty: r.faculty || r.faculty_name || null,
+          faculty_id: fid,
           subject: r.subject || r.subject_title || null,
           time: r.time || r.time_slot || null,
           classroom: r.classroom || r.room_name || r.room || null,
@@ -1168,6 +1178,16 @@ async saveSchedule(mode = 'pending') {
 
     // Build schedule array for final call
     const scheduleArray = buildScheduleArray({ grouped: this.groupedSchedules }, mode === 'pending');
+
+    // If finalizing, validate faculty_id presence to avoid DB errors
+    if (mode === 'finalized') {
+      const missingIds = scheduleArray.filter(x => !x.faculty_id);
+      if (missingIds.length) {
+        this.showError('Cannot finalize: some rows are missing faculty IDs. Please ensure each assignment has a faculty selected.');
+        this.hide();
+        return;
+      }
+    }
 
     const url = mode === 'finalized' 
       ? `${this.apiBase}/finalized-schedules` 

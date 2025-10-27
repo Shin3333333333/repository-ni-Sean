@@ -214,13 +214,30 @@ export default {
 
         } else if (type === "faculty") {
         let res;
+        // Normalize time_unavailable to a proper string, not "[object Object]"
+        const timeUnavailableString = Array.isArray(item.unavailableTimes)
+          ? item.unavailableTimes
+              .map(u => {
+                if (typeof u === 'string') return u;
+                if (u && typeof u === 'object') {
+                  const day = u.dayName || u.day || '';
+                  const start = u.start || '';
+                  const end = u.end || '';
+                  if (day && start && end) return `${day} ${start}–${end}`;
+                }
+                return '';
+              })
+              .filter(Boolean)
+              .join(', ')
+          : (typeof item.time_unavailable === 'string' ? item.time_unavailable : '');
+
         const payload = {
           name: item.name,
           type: item.type,
           department: item.department,
           max_load: item.maxLoad,
           status: item.status,
-          time_unavailable: (item.unavailableTimes || []).join(", "),
+          time_unavailable: timeUnavailableString,
         };
 
      if (!item.id) {

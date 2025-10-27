@@ -52,6 +52,10 @@ export default {
 
         // ✅ Save token & set default header for future requests
         localStorage.setItem("authToken", res.data.token);
+        // Save user name to localStorage
+        if (res.data.user && res.data.user.name) {
+          localStorage.setItem("userName", res.data.user.name);
+        }
         api.defaults.headers.common["Authorization"] = `Bearer ${res.data.token}`;
 
         // ✅ Redirect to dashboard

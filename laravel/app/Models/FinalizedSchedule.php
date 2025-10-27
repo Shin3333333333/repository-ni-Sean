@@ -11,6 +11,7 @@ class FinalizedSchedule extends Model
 
     protected $fillable = [
         'faculty',
+        'faculty_id',
         'subject',
         'time',
         'classroom',

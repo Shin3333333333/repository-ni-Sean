@@ -32,22 +32,30 @@ class FinalizedScheduleController extends Controller
         }
 
         $userId = Auth::id();
-        $academicYear = $request->input('academicYear');
-        $semester = $request->input('semester');
+        // Derive base academicYear/semester from request or first row
+        $baseYear = $request->input('academicYear') ?? ($scheduleArray[0]['academicYear'] ?? null);
+        $semester = $request->input('semester') ?? ($scheduleArray[0]['semester'] ?? null);
+        if (!$baseYear || !$semester) {
+            return response()->json(['success' => false, 'message' => 'Missing academicYear or semester.'], 400);
+        }
+
+        // Compute unique academicYear for finalized schedules
+        $finalAcademicYear = $this->nextUniqueAcademicYear($baseYear, $semester);
 
         try {
-            DB::transaction(function () use ($scheduleArray, $userId, $batchId, $academicYear, $semester) {
+            DB::transaction(function () use ($scheduleArray, $userId, $batchId, $finalAcademicYear, $semester) {
                 foreach ($scheduleArray as $row) {
                     FinalizedSchedule::create([
                         'faculty' => $row['faculty'] ?? null,
+                        'faculty_id' => $row['faculty_id'] ?? null,
                         'subject' => $row['subject'] ?? null,
                         'time' => $row['time'] ?? null,
                         'classroom' => $row['classroom'] ?? null,
                         'course_code' => $row['course_code'] ?? null,
                         'course_section' => $row['course_section'] ?? null,
                         'units' => $row['units'] ?? 0,
-                        'academicYear' => $row['academicYear'] ?? $academicYear,
-                        'semester' => $row['semester'] ?? $semester,
+                        'academicYear' => $finalAcademicYear,
+                        'semester' => $semester,
                         'status' => 'finalized',
                         'user_id' => $userId,
                         'batch_id' => $batchId,
@@ -61,6 +69,9 @@ class FinalizedScheduleController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule finalized successfully!',
+                'batch_id' => $batchId,
+                'academicYear' => $finalAcademicYear,
+                'semester' => $semester,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -100,6 +111,31 @@ class FinalizedScheduleController extends Controller
                 'courses' => $courses,
             ],
         ]);
+    }
+
+    /**
+     * Compute unique academicYear label for finalized table
+     */
+    private function nextUniqueAcademicYear(string $baseYear, string $semester): string
+    {
+        $existing = DB::table('finalized_schedules')
+            ->where('semester', $semester)
+            ->where('academicYear', 'like', $baseYear . '%')
+            ->pluck('academicYear')
+            ->toArray();
+
+        if (empty($existing)) return $baseYear;
+
+        $maxSuffix = 0;
+        foreach ($existing as $label) {
+            if ($label === $baseYear) { $maxSuffix = max($maxSuffix, 0); continue; }
+            $pattern = '/^' . preg_quote($baseYear, '\/') . '\\((\d+)\\)$/';
+            if (preg_match($pattern, $label, $m)) {
+                $n = intval($m[1]);
+                if ($n > $maxSuffix) $maxSuffix = $n;
+            }
+        }
+        return $baseYear . '(' . ($maxSuffix + 1) . ')';
     }
 
     /**

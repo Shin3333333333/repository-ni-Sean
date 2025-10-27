@@ -39,29 +39,84 @@
         </div>
 
         <!-- Time Unavailable Picker -->
-        <div class="form-group col-6">
+        <div class="form-group col-12">
           <label class="section-label">Time Unavailable:</label>
-
-          <div class="picker-row">
-            <select v-model="newUnavailable.day">
-              <option value="">Select Day</option>
-              <option v-for="day in days" :key="day" :value="day">{{ day }}</option>
-            </select>
-
-            <input v-model="newUnavailable.start" type="time" />
-            <input v-model="newUnavailable.end" type="time" />
-
-            <button type="button" class="add-btn" @click="addUnavailable">Add</button>
+          
+          <!-- Day Selection -->
+          <div class="day-selection">
+            <div class="day-grid">
+              <div
+                v-for="day in weekDays"
+                :key="day.value"
+                class="day-item"
+                :class="{ 
+                  'is-selected': selectedDays.includes(day.value),
+                  'is-whole-day': wholeDayUnavailable.includes(day.value)
+                }"
+                @click="toggleDay(day.value)"
+              >
+                <span class="day-name">{{ day.name }}</span>
+              </div>
+            </div>
           </div>
 
-          <div v-if="localForm.unavailableTimes.length" class="unavailable-list">
-            <div
-              v-for="(item, index) in localForm.unavailableTimes"
-              :key="index"
-              class="unavailable-item"
-            >
-              {{ item }}
-              <button type="button" class="remove-btn" @click="removeUnavailable(index)">×</button>
+          <!-- Per-day Time Range Editors -->
+          <div v-if="selectedDays.length > 0" class="time-range-section">
+            <div class="time-range-header">
+              <span>Set time ranges per selected day (optional):</span>
+            </div>
+            <div class="unavailable-items">
+              <div
+                v-for="(item, index) in perDayItems"
+                :key="item.dayValue"
+                class="unavailable-item"
+              >
+                <div class="item-content">
+                  <span class="day-name">{{ item.dayName }}</span>
+                  <div class="checkbox-label">
+                    <input type="checkbox" v-model="item.useSpecific" @change="setDayUseSpecific(item.dayValue, item.useSpecific)" />
+                    <span>Use specific time range</span>
+                  </div>
+                  <div v-if="item.useSpecific" class="time-inputs">
+                    <div class="time-input-group">
+                      <label>From:</label>
+                      <input type="time" class="time-input" v-model="item.start" @change="onDayTimeChanged(item.dayValue, item.start, item.end)" />
+                    </div>
+                    <div class="time-input-group">
+                      <label>To:</label>
+                      <input type="time" class="time-input" v-model="item.end" @change="onDayTimeChanged(item.dayValue, item.start, item.end)" />
+                    </div>
+                  </div>
+                  <div class="time-info">Current: {{ item.isWholeDay ? '01:00 - 24:00' : `${item.start} - ${item.end}` }}</div>
+                </div>
+                <button type="button" class="remove-btn" @click="removeUnavailableByDay(item.dayValue)">×</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Selected Unavailable Times Display -->
+          <div v-if="localForm.unavailableTimes.length" class="unavailable-display">
+            <div class="unavailable-header">
+              <span>Selected Unavailable Times:</span>
+              <button type="button" class="clear-all-btn" @click="clearAllUnavailable">
+                Clear All
+              </button>
+            </div>
+            <div class="unavailable-items">
+              <div
+                v-for="(item, index) in localForm.unavailableTimes"
+                :key="index"
+                class="unavailable-item"
+                :class="{ 'whole-day': item.isWholeDay }"
+              >
+                <div class="item-content">
+                  <span class="day-name">{{ item.dayName }}</span>
+                  <span class="time-info">
+                    {{ item.isWholeDay ? '01:00 - 24:00' : `${item.start} - ${item.end}` }}
+                  </span>
+                </div>
+                <button type="button" class="remove-btn" @click="removeUnavailable(index)">×</button>
+              </div>
             </div>
           </div>
         </div>
@@ -89,15 +144,23 @@ export default {
       default: () => ({ unavailableTimes: [] }),
     },
   },
-setup() {
-  const { show: showLoading, hide: hideLoading } = useLoading();
-  return { showLoading, hideLoading };
-},
+  setup() {
+    const { show: showLoading, hide: hideLoading } = useLoading();
+    return { showLoading, hideLoading };
+  },
 
   data() {
     return {
-      days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-      newUnavailable: { day: "", start: "", end: "" },
+      weekDays: [
+        { name: "Mon", value: 1 },
+        { name: "Tue", value: 2 },
+        { name: "Wed", value: 3 },
+        { name: "Thu", value: 4 },
+        { name: "Fri", value: 5 },
+        { name: "Sat", value: 6 }
+      ],
+      selectedDays: [],
+      wholeDayUnavailable: [],
       localForm: {
         id: null,
         name: "",
@@ -114,6 +177,23 @@ setup() {
       immediate: true,
       handler(val) {
         if (val) {
+          // Build unavailableTimes from various possible shapes in form
+          let parsedItems = [];
+          if (Array.isArray(this.form?.unavailableTimes)) {
+            const arr = this.form.unavailableTimes;
+            if (arr.length && typeof arr[0] === 'string') {
+              // array of strings like ["Mon 01:00–24:00", "Tue 10:00–12:00"]
+              parsedItems = this.parseTimeUnavailable(arr.join(', '));
+            } else if (arr.length && typeof arr[0] === 'object' && arr[0]?.dayValue !== undefined) {
+              parsedItems = [...arr];
+            } else {
+              parsedItems = [];
+            }
+          } else if (typeof this.form?.time_unavailable === 'string') {
+            parsedItems = this.parseTimeUnavailable(this.form.time_unavailable);
+          }
+
+          const normalized = this.normalizeUnavailableItems(parsedItems);
           this.localForm = {
             id: this.form?.id || null,
             name: this.form?.name || "",
@@ -121,12 +201,11 @@ setup() {
             department: this.form?.department || "",
             maxLoad: Number(this.form?.max_load ?? this.form?.maxLoad ?? 1),
             status: this.form?.status || "Active",
-            unavailableTimes: Array.isArray(this.form?.unavailableTimes)
-              ? [...this.form.unavailableTimes]
-              : this.form?.time_unavailable
-                ? this.form.time_unavailable.split(",").map(t => t.trim())
-                : [],
+            unavailableTimes: normalized,
           };
+
+          // Initialize day selection from existing data
+          this.initializeDaySelection();
         }
       },
     },
@@ -135,21 +214,182 @@ setup() {
     closeModal() {
       this.$emit("update:show", false);
     },
-    addUnavailable() {
-      if (!this.newUnavailable.day || !this.newUnavailable.start || !this.newUnavailable.end) {
-        alert("Please fill all fields before adding.");
-        return;
-      }
-      const timeStr = `${this.newUnavailable.day} ${this.newUnavailable.start}–${this.newUnavailable.end}`;
-      this.localForm.unavailableTimes.push(timeStr);
-      this.newUnavailable = { day: "", start: "", end: "" };
+    
+    // Parse existing time unavailable string
+    parseTimeUnavailable(timeString) {
+      if (!timeString) return [];
+      
+      const items = timeString.split(",").map(t => t.trim());
+      return items.map(item => {
+        // Check if it's whole day format (just day name)
+        const dayMatch = item.match(/^(\w+)$/);
+        if (dayMatch) {
+          const dayName = dayMatch[1];
+          const dayValue = this.getDayValue(dayName);
+          return {
+            dayValue,
+            dayName,
+            isWholeDay: true,
+            start: '01:00',
+            end: '24:00',
+            useSpecific: false
+          };
+        }
+        
+        // Check if it's time range format (day + time)
+        const timeMatch = item.match(/^(\w+)\s+(\d{2}:\d{2})–(\d{2}:\d{2})$/);
+        if (timeMatch) {
+          const [, dayName, start, end] = timeMatch;
+          const dayValue = this.getDayValue(dayName);
+          const isWhole = start === '01:00' && end === '24:00';
+          return {
+            dayValue,
+            dayName,
+            isWholeDay: isWhole,
+            start,
+            end,
+            useSpecific: !isWhole
+          };
+        }
+        
+        return null;
+      }).filter(Boolean);
     },
+
+    // Ensure items have required fields and defaults
+    normalizeUnavailableItems(items) {
+      return (items || []).map(it => ({
+        dayValue: it.dayValue,
+        dayName: it.dayName ?? this.getDayName(it.dayValue),
+        isWholeDay: !!it.isWholeDay,
+        useSpecific: it.useSpecific ?? !it.isWholeDay,
+        start: it.isWholeDay ? '01:00' : (it.start || '08:00'),
+        end: it.isWholeDay ? '24:00' : (it.end || '17:00'),
+      }));
+    },
+    
+    // Get day value from day name
+    getDayValue(dayName) {
+      const mapping = { 
+        "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, 
+        "Fri": 5, "Sat": 6, "Sun": 0,
+        "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, 
+        "Friday": 5, "Saturday": 6, "Sunday": 0
+      };
+      return mapping[dayName] !== undefined ? mapping[dayName] : 1;
+    },
+    
+    // Get day name from day value
+    getDayName(dayValue) {
+      const mapping = { 0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
+      return mapping[dayValue] || "Unknown";
+    },
+    
+    // Initialize day selection from existing data
+    initializeDaySelection() {
+      this.selectedDays = [];
+      this.wholeDayUnavailable = [];
+      
+      this.localForm.unavailableTimes.forEach(item => {
+        if (typeof item === 'object' && item.dayValue !== undefined) {
+          this.selectedDays.push(item.dayValue);
+          if (item.isWholeDay) {
+            this.wholeDayUnavailable.push(item.dayValue);
+          }
+        }
+      });
+    },
+
+    // Computed-like helper to list per-day items in selected order
+    
+    // Toggle day selection
+    toggleDay(dayValue) {
+      if (this.selectedDays.includes(dayValue)) {
+        // Remove day and its entry
+        this.selectedDays = this.selectedDays.filter(d => d !== dayValue);
+        this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
+        this.localForm.unavailableTimes = this.localForm.unavailableTimes.filter(it => it.dayValue !== dayValue);
+      } else {
+        // Add day with default whole-day block 01:00-24:00
+        this.selectedDays.push(dayValue);
+        this.wholeDayUnavailable.push(dayValue);
+        const dayName = this.getDayName(dayValue);
+        this.localForm.unavailableTimes.push({
+          dayValue,
+          dayName,
+          isWholeDay: true,
+          useSpecific: false,
+          start: '01:00',
+          end: '24:00'
+        });
+      }
+    },
+
+    // Set whether a day uses specific time or the default
+    setDayUseSpecific(dayValue, useSpecific) {
+      const item = this.localForm.unavailableTimes.find(it => it.dayValue === dayValue);
+      if (!item) return;
+      if (useSpecific) {
+        item.isWholeDay = false;
+        item.useSpecific = true;
+        // Keep existing times if already set, otherwise suggest a typical window
+        item.start = item.start || '08:00';
+        item.end = item.end || '17:00';
+        this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
+      } else {
+        item.isWholeDay = true;
+        item.useSpecific = false;
+        item.start = '01:00';
+        item.end = '24:00';
+        if (!this.wholeDayUnavailable.includes(dayValue)) this.wholeDayUnavailable.push(dayValue);
+      }
+    },
+
+    // Update a day's time and mark it as specific
+    onDayTimeChanged(dayValue, start, end) {
+      const item = this.localForm.unavailableTimes.find(it => it.dayValue === dayValue);
+      if (!item) return;
+      if (!start || !end) return;
+      item.start = start;
+      item.end = end;
+      item.isWholeDay = false;
+      item.useSpecific = true;
+      this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
+    },
+
+    // Remove day entry by day value
+    removeUnavailableByDay(dayValue) {
+      this.selectedDays = this.selectedDays.filter(d => d !== dayValue);
+      this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
+      this.localForm.unavailableTimes = this.localForm.unavailableTimes.filter(it => it.dayValue !== dayValue);
+    },
+
+    // Clear all unavailable times
+    clearAllUnavailable() {
+      this.selectedDays = [];
+      this.wholeDayUnavailable = [];
+      this.localForm.unavailableTimes = [];
+    },
+
+    // Utility to format display strings
+    formatDisplay(items) {
+      return (items || []).map(i => `${i.dayName} ${i.start}–${i.end}`);
+    },
+
+    // Backward compat remove by index in display list
     removeUnavailable(index) {
-      this.localForm.unavailableTimes.splice(index, 1);
+      const item = this.localForm.unavailableTimes[index];
+      if (!item) return;
+      this.removeUnavailableByDay(item.dayValue);
     },
     async handleSubmit() {
       try {
        this.showLoading(); // show global loading
+
+        // Format time unavailable data for API
+        const timeUnavailableString = this.localForm.unavailableTimes
+          .map(item => `${item.dayName} ${item.start}–${item.end}`)
+          .join(", ");
 
         const payload = {
           name: this.localForm.name,
@@ -157,7 +397,7 @@ setup() {
           department: this.localForm.department,
           max_load: this.localForm.maxLoad,
           status: this.localForm.status,
-          time_unavailable: this.localForm.unavailableTimes.join(", "),
+          time_unavailable: timeUnavailableString,
         };
 
         let res;
@@ -167,22 +407,21 @@ setup() {
           res = await axios.post("/api/professors", payload);
         }
 
+        const returnedTu = res.data.data?.time_unavailable || res.data.time_unavailable || "";
+        const structured = this.normalizeUnavailableItems(this.parseTimeUnavailable(returnedTu));
         const savedFaculty = {
-      id: res.data.data?.id || res.data.id,
-      name: res.data.data?.name || res.data.name,
-      type: res.data.data?.type || res.data.type,
-      department: res.data.data?.department || res.data.department,
-      maxLoad: res.data.data?.max_load || res.data.max_load,
-      status: res.data.data?.status || res.data.status,
-      unavailableTimes: (res.data.data?.time_unavailable || res.data.time_unavailable || "")
-                          .split(",")
-                          .map(s => s.trim())
-    };
+          id: res.data.data?.id || res.data.id,
+          name: res.data.data?.name || res.data.name,
+          type: res.data.data?.type || res.data.type,
+          department: res.data.data?.department || res.data.department,
+          maxLoad: res.data.data?.max_load || res.data.max_load,
+          status: res.data.data?.status || res.data.status,
+          unavailableTimes: structured,
+          unavailableTimesDisplay: this.formatDisplay(structured),
+          time_unavailable: returnedTu
+        };
 
-
-            // FacultyModal.vue handleSubmit()
-      this.$emit("submit", savedFaculty);
-
+        this.$emit("submit", savedFaculty);
 
         this.closeModal();
       } catch (err) {
@@ -193,18 +432,37 @@ setup() {
       }
     },
   },
+  computed: {
+    perDayItems() {
+      // keep same order as selectedDays
+      const map = new Map(this.localForm.unavailableTimes.map(it => [it.dayValue, it]));
+      return this.selectedDays.map(dv => map.get(dv)).filter(Boolean);
+    }
+  }
 };
 </script>
 
 
 <style scoped>
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999 !important;
+}
+
 .modal-content {
+  position: relative;
   max-width: 700px;
   width: 95%;
   padding: 20px;
   background: white;
   border-radius: 12px;
   overflow-y: auto;
+  z-index: 10000 !important;
 }
 
 .section-label {
@@ -213,62 +471,322 @@ setup() {
   margin-bottom: 8px;
 }
 
-/* ✅ Day+Time Picker styling */
-.picker-row {
+/* Basic form styling */
+.grid-row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+
+.col-6 {
+  grid-column: span 6;
+}
+
+.col-12 {
+  grid-column: span 12;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: #606266;
+  font-size: 14px;
+}
+
+.form-group input,
+.form-group select {
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1);
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.modal-buttons button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.modal-buttons button:first-child {
+  background: #909399;
+  color: white;
+}
+
+.modal-buttons button:last-child {
+  background: #409eff;
+  color: white;
+}
+
+.modal-buttons button:hover {
+  opacity: 0.8;
+}
+
+/* Enhanced Day Selection Styling */
+.day-selection {
+  margin-bottom: 20px;
+}
+
+.day-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.day-item {
+  background: #fff;
+  border: 2px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.day-item:hover {
+  border-color: #409eff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
+}
+
+.day-item.is-selected {
+  border-color: #409eff;
+  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(64, 158, 255, 0.25);
+}
+
+.day-item.is-whole-day {
+  border-color: #f56c6c;
+  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
+  color: white;
+}
+
+.day-item.is-whole-day.is-selected {
+  border-color: #f56c6c;
+  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
+}
+
+.day-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Time Range Section */
+.time-range-section {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.time-range-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+  color: #606266;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  accent-color: #409eff;
+}
+
+.time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.time-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.time-input-group label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #606266;
+}
+
+.time-input {
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.time-input:focus {
+  outline: none;
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1);
+}
+
+.apply-time-btn {
+  background: #67c23a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  align-self: flex-end;
+}
+
+.apply-time-btn:hover {
+  background: #5daf34;
+  transform: translateY(-1px);
+}
+
+/* Unavailable Display */
+.unavailable-display {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.unavailable-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.clear-all-btn {
+  background: #f56c6c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.clear-all-btn:hover {
+  background: #f24545;
+}
+
+.unavailable-items {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
-}
-
-.picker-row select,
-.picker-row input {
-  padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-}
-
-.add-btn {
-  background: #4f46e5;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.add-btn:hover {
-  background: #3730a3;
-}
-
-.unavailable-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
 }
 
 .unavailable-item {
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 0.9rem;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s;
+  min-width: 200px;
+}
+
+.unavailable-item:hover {
+  border-color: #409eff;
+  box-shadow: 0 4px 8px rgba(64, 158, 255, 0.1);
+}
+
+.unavailable-item.whole-day {
+  border-color: #f56c6c;
+  background: linear-gradient(135deg, #fef0f0 0%, #fde2e2 100%);
+}
+
+.item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-content .day-name {
+  font-weight: 600;
+  color: #409eff;
+  font-size: 14px;
+}
+
+.unavailable-item.whole-day .item-content .day-name {
+  color: #f56c6c;
+}
+
+.time-info {
+  font-size: 12px;
+  color: #606266;
+  font-family: 'Courier New', monospace;
 }
 
 .remove-btn {
   background: transparent;
   border: none;
-  color: #6b7280;
-  font-size: 1rem;
+  color: #909399;
+  font-size: 18px;
   cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .remove-btn:hover {
-  color: #ef4444;
+  color: #f56c6c;
+  background: #fef0f0;
 }
 </style>
