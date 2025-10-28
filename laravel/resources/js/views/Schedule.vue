@@ -31,10 +31,22 @@
         <button
           class="stage-btn"
           v-if="latestSchedule.length"
-          @click="showStageModal = true"
+          :class="{ active: isSelectedActive() }"
+          :disabled="isSelectedActive()"
+          @click="!isSelectedActive() && (showStageModal = true)"
+          :title="isSelectedActive() ? 'This schedule is active' : 'Stage as active schedule'"
         >
-          Stage as Active Schedule
+          {{ isSelectedActive() ? 'Active' : 'Stage as Active Schedule' }}
         </button>
+        <button
+          class="archive-btn"
+          v-if="latestSchedule.length"
+          @click="archiveCurrentBatch"
+          title="Archive the current latest batch"
+        >
+          Archive Current Batch
+        </button>
+        <button class="archives-open-btn" @click="openArchiveDrawer" title="View Archives">Archives</button>
          <button class="detect-btn" @click="detectConflicts">
       Detect Conflicts
     </button>
@@ -125,11 +137,43 @@
         </div>
       </div>
     </div>
+
+    <!-- Archive Drawer -->
+    <div v-if="showArchiveDrawer" class="archive-drawer-backdrop" @click.self="showArchiveDrawer=false">
+      <aside class="archive-drawer">
+        <div class="archive-drawer-header">
+          <h3>Archived Schedules</h3>
+          <button class="close" @click="showArchiveDrawer=false">✕</button>
+        </div>
+        <div class="archive-list" v-if="archives.length">
+          <div class="archive-item" v-for="a in archives" :key="a.id">
+            <div class="ai-main">
+              <div class="ai-title">{{ a.academicYear }} – {{ a.semester }}</div>
+              <div class="ai-meta">Batch: {{ a.batch_id }} • {{ formatDate(a.created_at) }} • {{ a.count || a.total || 0 }} rows</div>
+            </div>
+            <div class="ai-actions">
+              <button class="restore" @click="restoreArchive(a)">Restore</button>
+              <button class="delete" @click="deleteArchive(a)">Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="archive-empty" v-else>
+          No archived schedules yet.
+        </div>
+      </aside>
+    </div>
+
+    <!-- Global loading modal -->
+    <LoadingModal />
   </div>
 </template>
 
 <script>
+import LoadingModal from "../components/LoadingModal.vue";
+import { useLoading } from "../composables/useLoading";
+
 export default {
+  components: { LoadingModal },
   data() {
     return {
       activeView: 'faculty',
@@ -145,14 +189,24 @@ export default {
       courseSchedules: {},
       showStageModal: false,
       activeScheduleInfo: null,
+      // Archives UI
+      showArchiveDrawer: false,
+      archives: [],
+      isTogglingDisabled: false,
     };
+  },
+  setup() {
+    const { show, hide } = useLoading();
+    return { showLoading: show, hideLoading: hide };
   },
   created() {
     this.loadLatestSchedule();
     this.fetchActiveScheduleInfo();
+    this.loadArchives();
   },
   methods: {
     async detectConflicts() {
+  this.showLoading();
   try {
     const payload = {
       academic_year: this.selectedAcademicYear,
@@ -170,10 +224,11 @@ export default {
   } catch (err) {
     console.error(err);
     alert('Conflict detection failed.');
-  }
+      } finally { this.hideLoading(); }
 }
 ,
     async loadLatestSchedule() {
+      this.showLoading();
       try {
         const res = await fetch(`/api/finalized-schedules`);
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
@@ -203,7 +258,7 @@ export default {
       } catch (err) {
         console.error(err);
         alert("Failed to load latest schedule.");
-      }
+      } finally { this.hideLoading(); }
     },
 
     loadFilteredSchedule() {
@@ -246,7 +301,16 @@ export default {
       }
     },
 
+    isSelectedActive() {
+      if (!this.activeScheduleInfo) return false;
+      return (
+        this.activeScheduleInfo.academicYear === this.selectedAcademicYear &&
+        this.activeScheduleInfo.semester === this.selectedSemester
+      );
+    },
+
     async setAsActiveSchedule() {
+      this.showLoading();
       try {
         const payload = {
           academicYear: this.selectedAcademicYear,
@@ -264,7 +328,111 @@ export default {
       } catch (err) {
         console.error(err);
         alert("Failed to set active schedule.");
+      } finally { this.hideLoading(); }
+    },
+
+    async unsetActiveSchedule() {
+      this.showLoading();
+      try {
+        this.isTogglingDisabled = true;
+        const payload = {
+          academicYear: this.selectedAcademicYear,
+          semester: this.selectedSemester,
+        };
+        const res = await fetch(`/api/unset-active-schedule`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to unset active schedule");
+        alert("Active schedule has been deactivated.");
+        this.fetchActiveScheduleInfo();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to deactivate active schedule.");
+      } finally {
+        this.isTogglingDisabled = false;
+        this.hideLoading();
       }
+    },
+
+    openArchiveDrawer() {
+      this.showArchiveDrawer = true;
+    },
+
+    async loadArchives() {
+      try {
+        const res = await fetch(`/api/archives`);
+        if (!res.ok) return;
+        const data = await res.json();
+        this.archives = Array.isArray(data) ? data : (data.archives || []);
+      } catch (e) {
+        console.error("Failed to load archives", e);
+      }
+    },
+
+    async archiveCurrentBatch() {
+      this.showLoading();
+      try {
+        if (!this.latestSchedule.length) return;
+        const batchId = this.latestSchedule[0].batch_id;
+        const payload = {
+          academicYear: this.selectedAcademicYear,
+          semester: this.selectedSemester,
+          batch_id: batchId,
+        };
+        const res = await fetch(`/api/archive-batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Failed to archive batch');
+        alert('Current batch archived.');
+        await this.loadLatestSchedule();
+        this.loadArchives();
+      } catch (e) {
+        console.error(e);
+        alert('Failed to archive current batch.');
+      } finally { this.hideLoading(); }
+    },
+
+    async restoreArchive(a) {
+      this.showLoading();
+      try {
+        const res = await fetch(`/api/archives/${a.id}/restore`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ academicYear: a.academicYear, semester: a.semester, batch_id: a.batch_id }),
+        });
+        if (!res.ok) throw new Error('Failed to restore archive');
+        alert('Archive restored.');
+        await this.loadLatestSchedule();
+        this.loadArchives();
+      } catch (e) {
+        console.error(e);
+        alert('Failed to restore archive.');
+      } finally { this.hideLoading(); }
+    },
+
+    async deleteArchive(a) {
+      if (!confirm(`Delete archive for ${a.academicYear} – ${a.semester} (Batch ${a.batch_id})? This cannot be undone.`)) return;
+      this.showLoading();
+      try {
+        const res = await fetch(`/api/archives/${a.id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ academicYear: a.academicYear, semester: a.semester, batch_id: a.batch_id }),
+        });
+        if (!res.ok) throw new Error('Failed to delete archive');
+        this.archives = this.archives.filter(x => x.id !== a.id);
+      } catch (e) {
+        console.error(e);
+        alert('Failed to delete archive.');
+      } finally { this.hideLoading(); }
+    },
+
+    formatDate(d) {
+      try { return new Date(d).toLocaleString(); } catch { return d; }
     },
 
     filterSchedules() {
@@ -322,6 +490,10 @@ export default {
 .actions { display:flex; gap:10px; }
 .export-btn { padding:8px 14px; background-color:#27ae60; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
 .stage-btn { padding:8px 14px; background-color:#2980b9; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
+.stage-btn.active { background-color:#1e3a8a; cursor: pointer; }
+.stage-btn:disabled { opacity:.75; cursor:not-allowed; }
+.archive-btn { padding:8px 14px; background-color:#7c3aed; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
+.archives-open-btn { padding:8px 14px; background-color:#475569; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
 .export-btn:hover { background-color:#1e8449; }
 .stage-btn:hover { background-color:#1f6391; }
 .view-toggle { display:flex; gap:10px; margin-bottom:20px; }
@@ -381,4 +553,20 @@ export default {
   border-radius: 8px;
   cursor: pointer;
 }
+
+/* Archive drawer */
+.archive-drawer-backdrop { position: fixed; inset:0; background: rgba(0,0,0,0.4); display:flex; justify-content:flex-end; z-index:6000 }
+.archive-drawer { width: 420px; background:white; height:100%; box-shadow: -8px 0 24px rgba(0,0,0,0.2); padding:16px; overflow:auto }
+.archive-drawer-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px }
+.archive-drawer-header h3 { margin:0 }
+.archive-drawer-header .close { background:transparent; border:none; font-size:20px; cursor:pointer }
+.archive-list { display:flex; flex-direction:column; gap:10px }
+.archive-item { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px }
+.ai-title { font-weight:700 }
+.ai-meta { font-size:12px; color:#64748b }
+.ai-actions { display:flex; gap:8px }
+.ai-actions .restore { background:#0ea5e9; color:white; border:none; border-radius:8px; padding:6px 10px; cursor:pointer }
+.ai-actions .delete { background:#ef4444; color:white; border:none; border-radius:8px; padding:6px 10px; cursor:pointer }
+.archive-empty { color:#64748b; padding:20px 0; text-align:center }
 </style>
+

@@ -5,7 +5,9 @@
       :class="{ 'modal-large': courseForm.id }"
       @click.stop
     >
-      <h3>{{ courseForm.id ? 'Edit' : 'Add' }} Course/Section</h3>
+      <div class="modal-header">
+        <h3 class="modal-title">{{ courseForm.id ? 'Edit' : 'Add' }} Course/Section</h3>
+      </div>
 
       <form @submit.prevent="addCourse">
         <!-- Basic Course Details -->
@@ -24,10 +26,10 @@
             <label>Year Level:</label>
             <select v-model="courseForm.year" required>
               <option value="">Select Year</option>
-              <option value="1st">1st Year</option>
-              <option value="2nd">2nd Year</option>
-              <option value="3rd">3rd Year</option>
-              <option value="4th">4th Year</option>
+              <option value="1st Year">1st Year</option>
+              <option value="2nd Year">2nd Year</option>
+              <option value="3rd Year">3rd Year</option>
+              <option value="4th Year">4th Year</option>
             </select>
           </div>
 
@@ -40,7 +42,7 @@
             <label>Curriculum:</label>
             <div class="grid-row gap-2">
               <!-- Dropdown always available -->
-              <select class="col-10" v-model="courseForm.curriculum_id" required>
+              <select class="col-10 fancy-select" v-model="courseForm.curriculum_id" required>
                 <option value="">Select Curriculum</option>
                 <option
                   v-for="curr in curriculumList"
@@ -77,10 +79,10 @@
       v-if="courseForm.id"
     >
 
-          <div class="flex justify-between items-center mb-1">
+          <div class="flex justify-between items-center mb-1 section-header">
             <label>Subjects:</label>
 
-              <select v-model="selectedSemesterKey" class="semester-filter">
+              <select v-model="selectedSemesterKey" class="semester-filter fancy-select">
       <option value="">All Semesters</option>
       <option
         v-for="option in semesterFilterOptions"
@@ -126,8 +128,8 @@
 
         <!-- Buttons -->
         <div class="modal-buttons flex justify-end gap-2 mt-4">
-          <button type="button" @click="closeModal" class="btn-cancel">Cancel</button>
-          <button type="submit" class="btn-primary">
+          <button type="button" @click="closeModal" class="btn btn-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">
             {{ courseForm.id ? 'Update' : 'Add' }}
           </button>
         </div>
@@ -297,6 +299,8 @@ export default {
   max-height: 85vh;
   overflow-y: auto;
   z-index: 10000 !important;
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.25), 0 8px 20px rgba(2, 6, 23, 0.15);
+  border: 1px solid #e5e7eb;
 }
 
 .modal-large {
@@ -304,6 +308,20 @@ export default {
   max-width: 1100px;
   height: 85vh;
   overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 /* --- Table Styling --- */
@@ -317,15 +335,35 @@ export default {
   border-collapse: collapse;
   margin-top: 0.5rem;
   table-layout: fixed;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  overflow: hidden;
 }
 
 .subject-table th,
 .subject-table td {
-  border: 1px solid #ccc;
-  padding: 6px 8px;
+  border-bottom: 1px solid #eef2f7;
+  padding: 10px 12px;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.subject-table thead th {
+  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+  color: #0f172a;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.subject-table tbody tr:nth-child(odd) {
+  background: #fcfdff;
+}
+
+.section-header {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 
 /* Column Width Balancing */
@@ -360,11 +398,12 @@ export default {
 }
 
 /* --- Buttons --- */
-.modal-buttons button {
+.modal-buttons .btn {
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 0.5rem;
   cursor: pointer;
+  transition: all .15s ease;
 }
 
 .btn-cancel {
@@ -374,5 +413,32 @@ export default {
 .btn-primary {
   background: #3b82f6;
   color: white;
+  box-shadow: 0 10px 20px rgba(59,130,246,0.25), 0 4px 10px rgba(59,130,246,0.2);
+}
+
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+
+/* Inputs and selects */
+.form-group input,
+.form-group select {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.fancy-select {
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  min-width: 280px;
+  height: 40px;
 }
 </style>

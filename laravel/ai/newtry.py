@@ -158,7 +158,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         INNER JOIN courses c ON s.course_id = c.id
         LEFT JOIN professors f ON f.department = c.name
         WHERE s.semester_id = %s
-        AND s.year_level = c.year
         AND s.course_id IS NOT NULL
     """
     params = [semester_id]
@@ -166,7 +165,12 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     cursor.execute(subject_query, params)
     subjects_rows = cursor.fetchall() or []
 
-    print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id", file=sys.stderr)
+    print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id and semester_id={semester_id}", file=sys.stderr)
+    
+    # Additional debug: Check total subjects in database for comparison
+    cursor.execute("SELECT COUNT(*) AS cnt FROM subjects WHERE semester_id=%s AND course_id IS NOT NULL", (semester_id,))
+    total_in_db = cursor.fetchone().get("cnt", 0)
+    print(f"[DEBUG] Total subjects in database with semester_id={semester_id} and course_id IS NOT NULL: {total_in_db}", file=sys.stderr)
 
     # Normalize subjects as before
     subjects = []
@@ -185,6 +189,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         subjects.append(norm)
 
     print(f"[DEBUG] Normalized {len(subjects)} subjects after processing", file=sys.stderr)
+    
+    if len(subjects) < len(subjects_rows):
+        print(f"[WARNING] Some subjects were filtered during normalization. Expected {len(subjects_rows)}, got {len(subjects)}", file=sys.stderr)
 
 
     # All subjects from the query already have valid course_id due to INNER JOIN
@@ -829,6 +836,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     "is_overloaded": is_overloaded
                 })
                 assigned_subject_ids.add(sid)
+    
     # Identify unassigned subjects
     for subj in curriculum_subjects:
         sid = subj.get('id')
@@ -845,6 +853,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "possible_combos_count": len(combos_by_subject.get(sid, [])),
                 "reasons": reasons
             })
+    
     # Generate conflict reports
     conflicts = []
     for u in unassigned:
@@ -939,21 +948,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # -----------------------------
     def force_assign(subject_id, faculty_id, room_id, time_slot):
         return {"error": "force_assign_disabled"}
-    for subj in curriculum_subjects:
-        sid = subj.get('id')
-        if sid not in assigned_subject_ids:
-            reasons = list(subject_feasible_reasons.get(sid, []))
-            if combos_by_subject.get(sid):
-                reasons.append("unselected_by_solver_or_conflict")
-            unassigned.append({
-                "subject_id": sid,
-                "subject_title": subj.get('subject_title'),
-                "course_id": subj.get('course_id'),
-                "units": subj.get('units'),
-                "department": subj.get('dept'),
-                "possible_combos_count": len(combos_by_subject.get(sid, [])),
-                "reasons": reasons
-            })
+    
     # -----------------------------
     # Populate possible_assignments for unassigned subjects
     # -----------------------------
@@ -982,7 +977,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if rid:
                 occupied_slots_by_room[rid].add(t)
 
-    top_per_faculty = 50
+    top_per_faculty = 100
     heap_counter = itertools.count()
 
     # Iterate through unassigned subjects
@@ -1016,6 +1011,11 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         subj_course_code = subj_obj.get('subject_code')
         subj_units = subj_obj.get('units', 3)
         subj_dept = subj_obj.get('dept')
+        # Determine subject delivery type for room preference scoring
+        lec_units_val = float(subj_obj.get('lec_units', 0) or 0)
+        lab_units_val = float(subj_obj.get('lab_units', 0) or 0)
+        is_lecture_only = lab_units_val <= 0
+        is_lab_subject = lab_units_val > 0
 
         subj_course_section = course_lookup.get(subj_course_id, {}).get('name', '-') if subj_course_id else '-'
         subj_course_name = ("Year " + str(course_lookup.get(subj_course_id, {}).get('year', '-'))) if subj_course_id else None
@@ -1054,6 +1054,17 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         score += 10000
                     score += room_cap
                     score -= info.get('start', 0)
+
+                    # Room type preference: prefer lecture rooms for lecture-only subjects,
+                    # and lab rooms for subjects with lab units. Do not exclude other rooms.
+                    room_name_lower = (r.get('name') or '').lower()
+                    is_lab_room = ('lab' in room_name_lower) or ('laboratory' in room_name_lower)
+                    if is_lecture_only and is_lab_room:
+                        score -= 500  # discourage lab rooms for lecture-only subjects
+                    elif is_lab_subject and is_lab_room:
+                        score += 800  # prefer lab rooms for lab subjects
+                    elif is_lab_subject and not is_lab_room:
+                        score -= 300  # slight penalty for non-lab room on lab subjects
 
                     base_item = {
                         'faculty_id': fid,

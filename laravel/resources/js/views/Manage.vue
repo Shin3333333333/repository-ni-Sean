@@ -2,9 +2,9 @@
   <div class="manage-page">
     <div class="top-controls">
       <div class="switcher">
-        <button :class="{ active: activeTable === 'faculty' }" @click="activeTable = 'faculty'">Faculty</button>
-        <button :class="{ active: activeTable === 'room' }" @click="activeTable = 'room'">Room</button>
-        <button :class="{ active: activeTable === 'course' }" @click="activeTable = 'course'">Course/Section</button>
+        <button :class="{ active: activeTable === 'faculty' }" @click="setActiveTable('faculty')">Faculty</button>
+        <button :class="{ active: activeTable === 'room' }" @click="setActiveTable('room')">Room</button>
+        <button :class="{ active: activeTable === 'course' }" @click="setActiveTable('course')">Course/Section</button>
       </div>
       <button class="add-btn" @click="addEntry">+ Add</button>
     </div>
@@ -99,12 +99,35 @@ export default {
   },
 
   mounted() {
-    this.loadAllData();
-    this.loadCurriculums();
-    this.loadSemesters();
+    this.show();
+    Promise.all([
+      this.loadAllData(),
+      this.loadCurriculums(),
+      this.loadSemesters(),
+    ]).finally(() => this.hide());
   },
 
   methods: {
+    async setActiveTable(tab) {
+      if (this.activeTable === tab) return;
+      this.show();
+      this.activeTable = tab;
+      try {
+        if (tab === 'faculty') {
+          await this.loadAllData(); // includes professors
+        } else if (tab === 'room') {
+          const res = await axios.get('/api/rooms');
+          this.roomList = res.data.data || res.data;
+        } else if (tab === 'course') {
+          const res = await axios.get('/api/courses');
+          this.courseList = res.data.data || res.data;
+        }
+      } catch (e) {
+        console.error('Failed to load data for tab', tab, e);
+      } finally {
+        this.hide();
+      }
+    },
     addEntry() {
     if (this.activeTable === "faculty") {
       // ✅ Full default object for Add Faculty

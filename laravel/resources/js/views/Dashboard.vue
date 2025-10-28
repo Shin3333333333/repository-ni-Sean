@@ -63,15 +63,20 @@
       </div>
     </div>
 
+    <!-- Global Loading Modal -->
+    <LoadingModal />
   </div>
 </template>
 
 <script>
+import LoadingModal from "../components/LoadingModal.vue";
+import { useLoading } from "../composables/useLoading";
 import Chart from "chart.js/auto";
 import { errorStore } from "../assets/errorStore";
 
 export default {
   name: "Dashboard",
+  components: { LoadingModal },
   data() {
     return {
       activeAcademicYear: '',
@@ -91,6 +96,10 @@ export default {
       facultyCount: 0,
       roomCount: 0,
     };
+  },
+  setup() {
+    const { show, hide } = useLoading();
+    return { showLoading: show, hideLoading: hide };
   },
   computed: {
     conflicts() {
@@ -117,12 +126,17 @@ export default {
     },
   },
   async mounted() {
-    await this.fetchActiveScheduleInfo();
-    await this.fetchProfessors();
-    await this.loadLatestForActive();
-    await this.$nextTick(); // Wait for DOM to be ready
-    this.renderFacultyCharts();
-    this.isMounted = true;
+    this.showLoading();
+    try {
+      await this.fetchActiveScheduleInfo();
+      await this.fetchProfessors();
+      await this.loadLatestForActive();
+      await this.$nextTick(); // Wait for DOM to be ready
+      this.renderFacultyCharts();
+      this.isMounted = true;
+    } finally {
+      this.hideLoading();
+    }
   },
   methods: {
     async fetchProfessors() {

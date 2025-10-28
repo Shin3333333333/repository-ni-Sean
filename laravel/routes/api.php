@@ -14,7 +14,8 @@ use App\Http\Controllers\{
     PendingScheduleController,
     FinalizedScheduleController,
     ActiveScheduleController,
-    ErrorLogController
+    ErrorLogController,
+    ScheduleArchiveController
 };
 
 /*
@@ -93,3 +94,14 @@ Route::get('/active-schedule', [ActiveScheduleController::class, 'getActive']);
 Route::post('/set-active-schedule', [ActiveScheduleController::class, 'setActive']);
 Route::post('/detect-conflicts', [ScheduleController::class, 'detectConflicts']);
 Route::get('/errors', [ErrorLogController::class, 'index']);
+
+/*
+|--------------------------------------------------------------------------
+| Archives (stubs to support frontend)
+|--------------------------------------------------------------------------
+*/
+Route::post('/archive-batch', [ScheduleArchiveController::class, 'archiveBatch']);
+Route::get('/archives', [ScheduleArchiveController::class, 'listArchives']);
+Route::post('/archives/{id}/restore', [ScheduleArchiveController::class, 'restore']);
+Route::delete('/archives/{id}', [ScheduleArchiveController::class, 'delete']);
+Route::post('/unset-active-schedule', [ScheduleArchiveController::class, 'unsetActive']);

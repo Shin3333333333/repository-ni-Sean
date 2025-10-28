@@ -158,7 +158,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         INNER JOIN courses c ON s.course_id = c.id
         LEFT JOIN professors f ON f.department = c.name
         WHERE s.semester_id = %s
-        AND s.year_level = c.year
         AND s.course_id IS NOT NULL
     """
     params = [semester_id]
@@ -166,7 +165,12 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     cursor.execute(subject_query, params)
     subjects_rows = cursor.fetchall() or []
 
-    print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id", file=sys.stderr)
+    print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id and semester_id={semester_id}", file=sys.stderr)
+    
+    # Additional debug: Check total subjects in database for comparison
+    cursor.execute("SELECT COUNT(*) AS cnt FROM subjects WHERE semester_id=%s AND course_id IS NOT NULL", (semester_id,))
+    total_in_db = cursor.fetchone().get("cnt", 0)
+    print(f"[DEBUG] Total subjects in database with semester_id={semester_id} and course_id IS NOT NULL: {total_in_db}", file=sys.stderr)
 
     # Normalize subjects as before
     subjects = []
@@ -185,6 +189,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         subjects.append(norm)
 
     print(f"[DEBUG] Normalized {len(subjects)} subjects after processing", file=sys.stderr)
+    
+    if len(subjects) < len(subjects_rows):
+        print(f"[WARNING] Some subjects were filtered during normalization. Expected {len(subjects_rows)}, got {len(subjects)}", file=sys.stderr)
 
 
     # All subjects from the query already have valid course_id due to INNER JOIN
@@ -829,6 +836,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     "is_overloaded": is_overloaded
                 })
                 assigned_subject_ids.add(sid)
+    
     # Identify unassigned subjects
     for subj in curriculum_subjects:
         sid = subj.get('id')
@@ -845,6 +853,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 "possible_combos_count": len(combos_by_subject.get(sid, [])),
                 "reasons": reasons
             })
+    
     # Generate conflict reports
     conflicts = []
     for u in unassigned:
@@ -939,21 +948,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # -----------------------------
     def force_assign(subject_id, faculty_id, room_id, time_slot):
         return {"error": "force_assign_disabled"}
-    for subj in curriculum_subjects:
-        sid = subj.get('id')
-        if sid not in assigned_subject_ids:
-            reasons = list(subject_feasible_reasons.get(sid, []))
-            if combos_by_subject.get(sid):
-                reasons.append("unselected_by_solver_or_conflict")
-            unassigned.append({
-                "subject_id": sid,
-                "subject_title": subj.get('subject_title'),
-                "course_id": subj.get('course_id'),
-                "units": subj.get('units'),
-                "department": subj.get('dept'),
-                "possible_combos_count": len(combos_by_subject.get(sid, [])),
-                "reasons": reasons
-            })
+    
     # -----------------------------
     # Populate possible_assignments for unassigned subjects
     # -----------------------------

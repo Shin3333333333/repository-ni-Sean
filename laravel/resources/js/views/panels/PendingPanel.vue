@@ -135,10 +135,12 @@
           class="unassigned-top"
           v-if="pendingSchedules.length && pendingSchedules.some(s => !s.faculty || s.faculty === 'Unknown')"
         >
-          <h4>Unassigned Subjects (Quick Assign)</h4>
-          <button class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+          <div class="unassigned-header">
+            <h4>Unassigned Subjects (Quick Assign)</h4>
+            <button class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+          </div>
 
-          <table class="create-table">
+          <table class="create-table stylish-table">
             <thead>
               <tr>
                 <th>Subject Code</th>
@@ -161,6 +163,8 @@
                   <select
                     v-if="getPossibleAssignments(u).length"
                     @change="assignSuggestion(u.id, JSON.parse($event.target.value))"
+                    class="fancy-select"
+                    :disabled="!editMode"
                   >
                     <option value="">Select Possible Assignment</option>
                     <option
@@ -170,10 +174,11 @@
                     >
                       {{ pa.faculty_name || pa.faculty }} — {{ pa.time || pa.time_slot_label }}
                       ({{ pa.room_name || pa.classroom }})
+                      • {{ pa.faculty_department || pa.department || '—' }}
                       <span v-if="suggestionFlags(pa, u).bestFit">⭐ Best Fit</span>
                     </option>
                   </select>
-                  <span v-else>No possible assignments</span>
+                  <span v-else class="no-assignments">No possible assignments</span>
                 </td>
               </tr>
             </tbody>
@@ -250,7 +255,7 @@
           >
             <div class="s-left">
               <div class="s-title">{{ sug.faculty_name || sug.faculty || 'Faculty' }}</div>
-              <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
+              <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }} • {{ sug.faculty_department || sug.department || '—' }}</div>
             </div>
             <div class="s-right">
               <div class="badges">
@@ -1758,9 +1763,20 @@ async finalizeSchedule() {
 }
 
 /* Unassigned quick assign styles */
-.unassigned-top { margin: 12px 0; padding: 10px; background: #fff; border: 1px solid #eee; border-radius: 8px }
+.unassigned-top { margin: 12px 0; padding: 14px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 6px 18px rgba(2,6,23,0.06) }
+.unassigned-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px }
 .unassigned-list { display:flex; flex-direction:column; gap:8px }
 .unassigned-quick { display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px dashed #f0f0f0 }
+.stylish-table { width:100%; border-collapse: collapse; border:1px solid #e5e7eb; border-radius: 10px; overflow:hidden }
+.stylish-table thead th { background: linear-gradient(180deg,#f8fafc,#f1f5f9); color:#0f172a; border-bottom:1px solid #e5e7eb; padding:10px 12px; text-align:left }
+.stylish-table tbody td { border-bottom:1px solid #eef2f7; padding:10px 12px }
+.stylish-table tbody tr:nth-child(odd){ background:#fcfdff }
+.auto-assign-btn { background:#3b82f6; color:#fff; border:none; padding:8px 12px; border-radius:8px; box-shadow:0 8px 16px rgba(59,130,246,0.2); cursor:pointer }
+.auto-assign-btn:hover{ transform: translateY(-1px) }
+.fancy-select { border:1px solid #e5e7eb; border-radius:8px; padding:8px 10px; background:linear-gradient(180deg, #ffffff, #f8fafc); outline:none; min-width: 320px; height: 40px }
+.fancy-select:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed }
+.fancy-select:focus{ border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.15) }
+.no-assignments { color:#64748b }
 .ua-left { font-weight:600 }
 .ua-suggestions-inline { display:grid; gap:8px; grid-template-columns: 1fr; align-items:start }
 
