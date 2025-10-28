@@ -149,7 +149,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             s.year_level,
             s.semester_id,
             s.lec_units,
-            s.lab_units,
+s.lab_units,
             s.total_units,
             c.name AS course_name,
             c.year AS course_year,
@@ -198,7 +198,6 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     curriculum_subjects = subjects
 
     print(f"[DEBUG] Loaded {len(curriculum_subjects)} valid subjects for semester {semester_id} and matching course year.", file=sys.stderr)
-
     print(f"[DEBUG] semester_id resolved: {semester_id}", file=sys.stderr)
     print(f"[DEBUG] Loaded {len(curriculum_subjects)} subjects for this semester.", file=sys.stderr)
 
@@ -206,17 +205,28 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # TIME SLOTS
     # -----------------------------
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    start_hours = range(6, 19)   # 06:00 .. 18:00 starts
-    slot_duration = 3
-    time_slots = []
+    
+    # 3-hour slots for subjects with >= 3 units
+    time_slots_3_hours = []
     for day in days:
-        for start in start_hours:
-            end = start + slot_duration
+        for start in range(6, 19): # 6am to 6pm start
+            end = start + 3
             if end <= 21:
-                time_slots.append(f"{day} {start:02d}:00-{end:02d}:00")
+                time_slots_3_hours.append(f"{day} {start:02d}:00-{end:02d}:00")
+
+    # 2-hour slots for subjects with < 3 units
+    time_slots_2_hours = []
+    for day in days:
+        for start in range(6, 20): # 6am to 7pm start
+            end = start + 2
+            if end <= 21:
+                time_slots_2_hours.append(f"{day} {start:02d}:00-{end:02d}:00")
+
+    # Combined list for overlap calculations and indexing
+    time_slots = sorted(list(set(time_slots_3_hours + time_slots_2_hours)))
 
     # -----------------------------
-    # PARSERS & HELPERS
+# PARSERS & HELPERS
     # -----------------------------
     def parse_slot_label(slot_label):
         s = slot_label.replace("–", "-").strip()
@@ -430,6 +440,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
         lec_units_val = float(subj.get('lec_units', 0) or 0)
         lab_units_val = float(subj.get('lab_units', 0) or 0)
+        subj_units = int(subj.get('units', 3))
 
         candidate_fids = perfect_match_pairs.get(sid, [])
         for fobj in faculty:
@@ -446,7 +457,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                     continue
                 if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
                     continue
-                for t in time_slots:
+                
+                current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
+                for t in current_time_slots:
                     if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                         continue
                     allowed_combos[(sid, fid, rid, t)] = True
@@ -462,10 +475,11 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
         lec_units_val = float(subj.get('lec_units', 0) or 0)
         lab_units_val = float(subj.get('lab_units', 0) or 0)
+        subj_units = int(subj.get('units', 3))
 
         # If there are already perfect combos, skip adding cross-dept here for this subject
         has_perfect = bool(combos_by_subject.get(sid))
-
+        
         # Fallback priority: dept + subject name match (not necessarily prefix), then dept only
         for fobj in faculty:
             fid = fobj.get('id')
@@ -485,7 +499,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         continue
                     if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
                         continue
-                    for t in time_slots:
+                    
+                    current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
+                    for t in current_time_slots:
                         if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                             continue
                         allowed_combos[(sid, fid, rid, t)] = True
@@ -502,6 +518,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
                 if not keyword_match:
                     continue
+
+                subj_units = int(subj.get('units', 3))
                 for r in rooms:
                     rid = r.get('id')
                     cap = r.get('capacity') or r.get('max_load') or None
@@ -512,7 +530,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         continue
                     if lab_units_val == 0 and ('lab' in room_name or 'laboratory' in room_name):
                         continue
-                    for t in time_slots:
+                    
+                    current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
+                    for t in current_time_slots:
                         if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
                             continue
                         allowed_combos[(sid, fid, rid, t)] = True
@@ -638,8 +658,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         break
                     if created_any:
                         break
-                if created_any:
-                    break
+                    if created_any:
+                        break
 
             if not created_any and not combos_by_subject[sid]:
                 subject_feasible_reasons[sid].append('no_available_faculty_even_in_fallback')
@@ -764,17 +784,16 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             subj_dept = (subj.get('dept') or '').lower()
             subj_code = (subj.get('subject_code') or '').upper()
             subj_title = (subj.get('subject_title') or '').upper()
-            faculty_dept = (fobj.get('department') or fobj.get('dept') or fobj.get('year') or '').lower()
-            
-            if subj_dept and faculty_dept and subj_dept == faculty_dept:
-                prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
-                keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
-                if prefix_match:
-                    objective_terms.append(var * 30000)
-                elif keyword_match:
-                    objective_terms.append(var * 22000)
-                else:
-                    objective_terms.append(var * 8000)
+    faculty_dept = (fobj.get('department') or fobj.get('dept') or fobj.get('year') or '').lower()        
+    if subj_dept and faculty_dept and subj_dept == faculty_dept:
+        prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
+        keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+        if prefix_match:
+            objective_terms.append(var * 30000)
+        elif keyword_match:
+            objective_terms.append(var * 22000)
+        else:
+            objective_terms.append(var * 8000)
 
     # 3. Full-time faculty preference (medium priority)
     for (sid, fid, rid, t), var in x.items():
@@ -1064,7 +1083,9 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                 room_cap = r.get('capacity') or r.get('max_load') or 0
                 if room_cap < 1:
                     continue
-                for t in time_slots:
+
+                current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
+                for t in current_time_slots:
                     if t in occupied_slots_by_faculty[fid] or t in occupied_slots_by_room[rid]:
                         continue
                     if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
