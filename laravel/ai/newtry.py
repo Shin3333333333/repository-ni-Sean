@@ -694,6 +694,22 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if vars_overlapping:
                 model.Add(sum(vars_overlapping) <= 1)
 
+    # Course section (by course_id) time conflicts
+    # Ensure a section (course) cannot have two classes that overlap in time
+    course_ids = set(s.get('course_id') for s in curriculum_subjects if s.get('course_id') is not None)
+    for cid in course_ids:
+        for i in range(num_slots):
+            vars_overlapping = []
+            for (s, ff, rr, t), v in x.items():
+                subj = next((sub for sub in curriculum_subjects if sub.get('id') == s), None)
+                if not subj or subj.get('course_id') != cid:
+                    continue
+                ti = slot_index_by_label.get(t)
+                if ti == i or ti in overlap_map.get(i, set()):
+                    vars_overlapping.append(v)
+            if vars_overlapping:
+                model.Add(sum(vars_overlapping) <= 1)
+
     # -----------------------------
     # STRICT FACULTY LOAD CONSTRAINTS USING UNITS - NO OVERLOAD ALLOWED
     # -----------------------------
@@ -901,15 +917,19 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # Check time overlaps
     fac_slots = defaultdict(list)
     room_slots = defaultdict(list)
+    section_slots = defaultdict(list)
     for a in assigned:
         fid = a.get('faculty_id')
         rid = a.get('room_id')
         t = a.get('time_slot')
+        cid = a.get('course_id')
         if t not in slot_index_by_label:
             continue
         ti = slot_index_by_label[t]
         fac_slots[fid].append((ti, a))
         room_slots[rid].append((ti, a))
+        if cid is not None:
+            section_slots[cid].append((ti, a))
 
     def detect_overlaps(list_of_ti_and_a, owner_type):
         list_of_ti_and_a.sort(key=lambda x: x[0])
@@ -930,6 +950,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         detect_overlaps(lst, "faculty")
     for rid, lst in room_slots.items():
         detect_overlaps(lst, "room")
+    for cid, lst in section_slots.items():
+        detect_overlaps(lst, "section")
 
     # Check faculty unavailable time violations
     for a in assigned:

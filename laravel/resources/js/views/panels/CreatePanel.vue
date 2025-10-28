@@ -165,6 +165,7 @@
                           <span v-if="pa.willExceed" class="badge badge-overload" title="Assigning this will exceed faculty's max load">Overload</span>
                           <span v-if="pa.conflictsExistingSlot" class="badge badge-conflict" title="This time overlaps an existing assignment">Time conflict</span>
                           <span v-if="pa.conflictsExistingRoom" class="badge badge-conflict" title="Room is already in use at this time">Room conflict</span>
+                          <span v-if="pa.conflictsCourseSection" class="badge badge-course-section" title="This conflicts with another subject in the same course section">Course conflict</span>
                         </div>
                       </div>
 
@@ -398,6 +399,12 @@ export default {
     return;
   }
 
+  // Check for course section conflicts (same course_section cannot have overlapping times)
+  if (this.checkCourseSectionConflict(subject, option)) {
+    this.showError("This assignment conflicts with another subject in the same course section.");
+    return;
+  }
+
   const facultyName = option.faculty_name || "Unknown";
   if (!this.groupedSchedules[facultyName]) this.groupedSchedules[facultyName] = [];
   
@@ -542,6 +549,64 @@ export default {
     }
     return false;
   },
+
+  // Check for course section conflicts (same course_section cannot have overlapping times)
+  checkCourseSectionConflict(subject, option) {
+    if (!subject || !option) return false;
+    
+    const subjectCourseSection = subject.course_section || subject.courseSection || "-";
+    const optionTimeSlot = option.time_slot_label || option.time || "";
+    
+    if (!subjectCourseSection || subjectCourseSection === "-" || !optionTimeSlot) return false;
+    
+    // Check all existing assignments for the same course section
+    for (const facultyName in this.groupedSchedules) {
+      const entries = this.groupedSchedules[facultyName];
+      for (const entry of entries) {
+        const entryCourseSection = entry.courseSection || entry.course_section || "-";
+        const entryTimeSlot = entry.time || entry.time_slot || "";
+        
+        // Skip if different course section or no time slot
+        if (entryCourseSection !== subjectCourseSection || !entryTimeSlot) continue;
+        
+        // Check if times overlap on the same day
+        if (this.slotLabelsOverlap(entryTimeSlot, optionTimeSlot)) {
+          return true; // Conflict found
+        }
+      }
+    }
+    
+    return false; // No conflict
+  },
+
+  // Check if a possible assignment would conflict with course section (for suggestion filtering)
+  checkCourseSectionConflictForSuggestion(subject, option) {
+    if (!subject || !option) return false;
+    
+    const subjectCourseSection = subject.course_section || subject.courseSection || "-";
+    const optionTimeSlot = option.time_slot_label || option.time || "";
+    
+    if (!subjectCourseSection || subjectCourseSection === "-" || !optionTimeSlot) return false;
+    
+    // Only check against already assigned subjects, not other unassigned ones
+    for (const facultyName in this.groupedSchedules) {
+      const entries = this.groupedSchedules[facultyName];
+      for (const entry of entries) {
+        const entryCourseSection = entry.courseSection || entry.course_section || "-";
+        const entryTimeSlot = entry.time || entry.time_slot || "";
+        
+        // Skip if different course section or no time slot
+        if (entryCourseSection !== subjectCourseSection || !entryTimeSlot) continue;
+        
+        // Check if times overlap on the same day
+        if (this.slotLabelsOverlap(entryTimeSlot, optionTimeSlot)) {
+          return true; // Conflict found
+        }
+      }
+    }
+    
+    return false; // No conflict
+  },
   confirmOverloadAssign(subject, option) {
     // Simple browser confirm dialog; can be replaced with a nicer modal later
     const faculty = option.faculty_name || 'Selected Faculty';
@@ -597,6 +662,7 @@ export default {
           // in the UI. Actual assignment will still enforce conflicts.
           const conflictsExistingSlot = this.checkSlotConflict(opt0.faculty_id, opt0.time_slot_label);
           const conflictsExistingRoom = this.checkRoomConflict(opt0.room_id, opt0.time_slot_label);
+          const conflictsCourseSection = this.checkCourseSectionConflictForSuggestion(u, opt0);
 
           const faculty = this.findFacultyById(opt0.faculty_id);
           const faculty_current = faculty ? (faculty.current_load || 0) : 0;
@@ -613,7 +679,8 @@ export default {
             deptMatch,
             conflictsExistingSlot,
             conflictsExistingRoom,
-            dynamic_class: (deptMatch && !willExceed && !conflictsExistingSlot && !conflictsExistingRoom) ? 'suitable' : (deptMatch && willExceed) ? 'overload' : (!deptMatch && !willExceed) ? 'underload' : 'mismatch',
+            conflictsCourseSection,
+            dynamic_class: (deptMatch && !willExceed && !conflictsExistingSlot && !conflictsExistingRoom && !conflictsCourseSection) ? 'suitable' : (deptMatch && willExceed) ? 'overload' : (!deptMatch && !willExceed) ? 'underload' : 'mismatch',
           };
 
           candidates.push({ subjectLocalId: u._localId, subjectRef: u, opt });
@@ -632,12 +699,13 @@ export default {
 
       Object.keys(byFaculty).forEach(fid => {
         const list = byFaculty[fid];
-        // sort by deptMatch desc, conflictsExistingSlot/Room asc (prefer non-conflicting), willExceed asc, score desc
+        // sort by deptMatch desc, conflictsExistingSlot/Room asc (prefer non-conflicting), willExceed asc, course section conflicts last, score desc
         list.sort((a,b) => {
           if ((a.opt.deptMatch ? 1 : 0) !== (b.opt.deptMatch ? 1 : 0)) return (a.opt.deptMatch ? -1 : 1);
           if ((a.opt.conflictsExistingSlot ? 1 : 0) !== (b.opt.conflictsExistingSlot ? 1 : 0)) return (a.opt.conflictsExistingSlot ? 1 : -1);
           if ((a.opt.conflictsExistingRoom ? 1 : 0) !== (b.opt.conflictsExistingRoom ? 1 : 0)) return (a.opt.conflictsExistingRoom ? 1 : -1);
           if ((a.opt.willExceed ? 1 : 0) !== (b.opt.willExceed ? 1 : 0)) return (a.opt.willExceed ? 1 : -1);
+          if ((a.opt.conflictsCourseSection ? 1 : 0) !== (b.opt.conflictsCourseSection ? 1 : 0)) return (a.opt.conflictsCourseSection ? 1 : -1);
           return (b.opt.score || 0) - (a.opt.score || 0);
         });
 
@@ -675,10 +743,11 @@ export default {
       // 3) assign selected candidates to each subject's possible_assignments (sorted best-first)
       this.unassigned = (this.unassigned || []).map(u => {
         const picks = selectedPerSubject[u._localId] || [];
-        // sort picks for subject by deptMatch desc, willExceed asc, score desc
+        // sort picks for subject by deptMatch desc, willExceed asc, course section conflicts last, score desc
         picks.sort((a,b) => {
           if ((a.deptMatch ? 1 : 0) !== (b.deptMatch ? 1 : 0)) return (a.deptMatch ? -1 : 1);
           if ((a.willExceed ? 1 : 0) !== (b.willExceed ? 1 : 0)) return (a.willExceed ? 1 : -1);
+          if ((a.conflictsCourseSection ? 1 : 0) !== (b.conflictsCourseSection ? 1 : 0)) return (a.conflictsCourseSection ? 1 : -1);
           return (b.score || 0) - (a.score || 0);
         });
         return { ...u, possible_assignments: picks };
@@ -716,6 +785,12 @@ assignFromSuggestion(subject, option) {
 
   if (this.usedSlots[slotKey] || this.usedRooms[roomKey] || this.checkSlotConflict(option.faculty_id, option.time_slot_label) || this.checkRoomConflict(option.room_id, option.time_slot_label)) {
     this.showError("This suggestion conflicts with an existing schedule.");
+    return;
+  }
+
+  // Check for course section conflicts (same course_section cannot have overlapping times)
+  if (this.checkCourseSectionConflict(subject, option)) {
+    this.showError("This assignment conflicts with another subject in the same course section.");
     return;
   }
 
@@ -1541,6 +1616,7 @@ async saveSchedule(mode = 'pending') {
 .badge-dept { background: #16a34a; }
 .badge-overload { background: #e11d48; }
 .badge-conflict { background: #f59e0b; color: #111; }
+.badge-course-section { background: #8b5cf6; color: #fff; }
 
 .sidebar-header h4 {
   font-size: 1.3rem;

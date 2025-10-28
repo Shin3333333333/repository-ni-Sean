@@ -775,6 +775,7 @@ getPossibleAssignments(subject) {
     if (!flags.willExceed) score += 2;
     if (flags.underload) score += 1;
     if (!flags.conflictsExistingSlot && !flags.conflictsExistingRoom) score += 2;
+    if (!flags.conflictsCourseSection) score += 1;
 
     pa.matchScore = score;
     pa.flags = flags;
@@ -972,7 +973,8 @@ markUsedSlotAndRoom(facultyIdentifier, roomIdentifier, slotLabel) {
       const deptMatch = subjDept && facDept && subjDept === facDept;
       const conflictsExistingSlot = this.checkSlotConflict(pa.faculty_id, pa.time_slot_label||pa.time||'');
       const conflictsExistingRoom = this.checkRoomConflict(pa.room_id, pa.time_slot_label||pa.time||'');
-      return { deptMatch, willExceed, underload, conflictsExistingSlot, conflictsExistingRoom };
+      const conflictsCourseSection = this.checkCourseSectionConflictForSuggestion(subject, pa);
+      return { deptMatch, willExceed, underload, conflictsExistingSlot, conflictsExistingRoom, conflictsCourseSection };
     },
     
 
@@ -1000,6 +1002,64 @@ checkSlotConflict(facultyIdentifier, slotLabel) {
     }
   }
   return false;
+},
+
+// Check for course section conflicts (same course_section cannot have overlapping times)
+checkCourseSectionConflict(subject, assignment) {
+  if (!subject || !assignment) return false;
+  
+  const subjectCourseSection = subject.course_section || subject.courseSection || "-";
+  const assignmentTimeSlot = assignment.time_slot_label || assignment.time || "";
+  
+  if (!subjectCourseSection || subjectCourseSection === "-" || !assignmentTimeSlot) return false;
+  
+  // Check all existing assignments for the same course section
+  for (const s of this.pendingSchedules) {
+    // Skip the current subject being assigned
+    if (s.id === subject.id) continue;
+    
+    const sCourseSection = s.course_section || s.courseSection || "-";
+    const sTimeSlot = s.time || s.time_slot || "";
+    
+    // Skip if different course section or no time slot
+    if (sCourseSection !== subjectCourseSection || !sTimeSlot) continue;
+    
+    // Check if times overlap on the same day
+    if (this.slotLabelsOverlap(sTimeSlot, assignmentTimeSlot)) {
+      return true; // Conflict found
+    }
+  }
+  
+  return false; // No conflict
+},
+
+// Check if a possible assignment would conflict with course section (for suggestion filtering)
+checkCourseSectionConflictForSuggestion(subject, assignment) {
+  if (!subject || !assignment) return false;
+  
+  const subjectCourseSection = subject.course_section || subject.courseSection || "-";
+  const assignmentTimeSlot = assignment.time_slot_label || assignment.time || "";
+  
+  if (!subjectCourseSection || subjectCourseSection === "-" || !assignmentTimeSlot) return false;
+  
+  // Only check against already assigned subjects, not other unassigned ones
+  for (const s of this.pendingSchedules) {
+    // Skip unassigned subjects and the current subject
+    if (!s.faculty || s.faculty === 'Unknown' || s.id === subject.id) continue;
+    
+    const sCourseSection = s.course_section || s.courseSection || "-";
+    const sTimeSlot = s.time || s.time_slot || "";
+    
+    // Skip if different course section or no time slot
+    if (sCourseSection !== subjectCourseSection || !sTimeSlot) continue;
+    
+    // Check if times overlap on the same day
+    if (this.slotLabelsOverlap(sTimeSlot, assignmentTimeSlot)) {
+      return true; // Conflict found
+    }
+  }
+  
+  return false; // No conflict
 },
     findFacultyById(id) {
       for (const s of this.pendingSchedules) {
@@ -1033,6 +1093,12 @@ assignSuggestion(subjectId, assignment) {
 
   if (conflict) {
     alert("❌ Conflict detected: This faculty or room already has an overlapping schedule!");
+    return;
+  }
+
+  // Check for course section conflicts (same course_section cannot have overlapping times)
+  if (this.checkCourseSectionConflict(target, assignment)) {
+    alert("❌ Conflict detected: This assignment conflicts with another subject in the same course section!");
     return;
   }
 

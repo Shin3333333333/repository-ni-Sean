@@ -694,6 +694,22 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if vars_overlapping:
                 model.Add(sum(vars_overlapping) <= 1)
 
+    # Course section (by course_id) time conflicts
+    # Ensure a section (course) cannot have two classes that overlap in time
+    course_ids = set(s.get('course_id') for s in curriculum_subjects if s.get('course_id') is not None)
+    for cid in course_ids:
+        for i in range(num_slots):
+            vars_overlapping = []
+            for (s, ff, rr, t), v in x.items():
+                subj = next((sub for sub in curriculum_subjects if sub.get('id') == s), None)
+                if not subj or subj.get('course_id') != cid:
+                    continue
+                ti = slot_index_by_label.get(t)
+                if ti == i or ti in overlap_map.get(i, set()):
+                    vars_overlapping.append(v)
+            if vars_overlapping:
+                model.Add(sum(vars_overlapping) <= 1)
+
     # -----------------------------
     # STRICT FACULTY LOAD CONSTRAINTS USING UNITS - NO OVERLOAD ALLOWED
     # -----------------------------
@@ -901,15 +917,19 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
     # Check time overlaps
     fac_slots = defaultdict(list)
     room_slots = defaultdict(list)
+    section_slots = defaultdict(list)
     for a in assigned:
         fid = a.get('faculty_id')
         rid = a.get('room_id')
         t = a.get('time_slot')
+        cid = a.get('course_id')
         if t not in slot_index_by_label:
             continue
         ti = slot_index_by_label[t]
         fac_slots[fid].append((ti, a))
         room_slots[rid].append((ti, a))
+        if cid is not None:
+            section_slots[cid].append((ti, a))
 
     def detect_overlaps(list_of_ti_and_a, owner_type):
         list_of_ti_and_a.sort(key=lambda x: x[0])
@@ -930,6 +950,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         detect_overlaps(lst, "faculty")
     for rid, lst in room_slots.items():
         detect_overlaps(lst, "room")
+    for cid, lst in section_slots.items():
+        detect_overlaps(lst, "section")
 
     # Check faculty unavailable time violations
     for a in assigned:
@@ -977,7 +999,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
             if rid:
                 occupied_slots_by_room[rid].add(t)
 
-    top_per_faculty = 50
+    top_per_faculty = 100
     heap_counter = itertools.count()
 
     # Iterate through unassigned subjects
@@ -1011,6 +1033,11 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         subj_course_code = subj_obj.get('subject_code')
         subj_units = subj_obj.get('units', 3)
         subj_dept = subj_obj.get('dept')
+        # Determine subject delivery type for room preference scoring
+        lec_units_val = float(subj_obj.get('lec_units', 0) or 0)
+        lab_units_val = float(subj_obj.get('lab_units', 0) or 0)
+        is_lecture_only = lab_units_val <= 0
+        is_lab_subject = lab_units_val > 0
 
         subj_course_section = course_lookup.get(subj_course_id, {}).get('name', '-') if subj_course_id else '-'
         subj_course_name = ("Year " + str(course_lookup.get(subj_course_id, {}).get('year', '-'))) if subj_course_id else None
@@ -1049,6 +1076,17 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
                         score += 10000
                     score += room_cap
                     score -= info.get('start', 0)
+
+                    # Room type preference: prefer lecture rooms for lecture-only subjects,
+                    # and lab rooms for subjects with lab units. Do not exclude other rooms.
+                    room_name_lower = (r.get('name') or '').lower()
+                    is_lab_room = ('lab' in room_name_lower) or ('laboratory' in room_name_lower)
+                    if is_lecture_only and is_lab_room:
+                        score -= 500  # discourage lab rooms for lecture-only subjects
+                    elif is_lab_subject and is_lab_room:
+                        score += 800  # prefer lab rooms for lab subjects
+                    elif is_lab_subject and not is_lab_room:
+                        score -= 300  # slight penalty for non-lab room on lab subjects
 
                     base_item = {
                         'faculty_id': fid,

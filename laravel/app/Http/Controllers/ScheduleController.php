@@ -10,7 +10,7 @@ class ScheduleController extends Controller
     public function generateSchedule(Request $request)
     {
         try {
-            ini_set('max_execution_time', 300); // 5 minutes
+            ini_set('max_execution_time', 600); // 5 minutes
             ini_set('memory_limit', '512M'); 
             $pythonScriptPath = base_path('ai/newtry.py');
             Log::info('Attempting to run Python script: ' . $pythonScriptPath);
