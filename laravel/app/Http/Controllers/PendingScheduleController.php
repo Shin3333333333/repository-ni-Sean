@@ -231,46 +231,124 @@ private function nextUniqueAcademicYear(string $baseYear, string $semester): str
 public function updateBatch(Request $request, $batchId)
 {
     $schedules = $request->input('schedules', []);
+    $deletedIds = array_filter(array_map('intval', $request->input('deleted_ids', [])));
 
     DB::beginTransaction();
     try {
         foreach ($schedules as $sched) {
             if (isset($sched['id'])) {
-                $updateData = [
-                    'faculty' => $sched['faculty'] ?? DB::raw('faculty'),
-                    'subject' => $sched['subject'] ?? DB::raw('subject'),
-                    'time' => $sched['time'] ?? DB::raw('time'),
-                    'classroom' => $sched['classroom'] ?? DB::raw('classroom'),
-                    'course_code' => $sched['course_code'] ?? DB::raw('course_code'),
-                    'course_section' => $sched['course_section'] ?? DB::raw('course_section'),
-                    'units' => $sched['units'] ?? DB::raw('units'),
-                    'academicYear' => $sched['academicYear'] ?? DB::raw('academicYear'),
-                    'semester' => $sched['semester'] ?? DB::raw('semester'),
-                    'updated_at' => now(),
-                ];
+                // Build update set conservatively to avoid touching missing columns and avoid nulling NOT NULL columns
+                $updateData = [];
+
+                // Required, non-nullable columns: preserve existing value if client sends null or omits
+                if (Schema::hasColumn('pending_schedules', 'faculty')) {
+                    $updateData['faculty'] = (array_key_exists('faculty', $sched) && $sched['faculty'] !== null)
+                        ? $sched['faculty']
+                        : DB::raw('faculty');
+                }
+                if (Schema::hasColumn('pending_schedules', 'subject')) {
+                    $updateData['subject'] = (array_key_exists('subject', $sched) && $sched['subject'] !== null)
+                        ? $sched['subject']
+                        : DB::raw('subject');
+                }
+                if (Schema::hasColumn('pending_schedules', 'academicYear')) {
+                    $updateData['academicYear'] = (array_key_exists('academicYear', $sched) && $sched['academicYear'] !== null)
+                        ? $sched['academicYear']
+                        : DB::raw('academicYear');
+                }
+                if (Schema::hasColumn('pending_schedules', 'semester')) {
+                    $updateData['semester'] = (array_key_exists('semester', $sched) && $sched['semester'] !== null)
+                        ? $sched['semester']
+                        : DB::raw('semester');
+                }
+                if (Schema::hasColumn('pending_schedules', 'units')) {
+                    $updateData['units'] = (array_key_exists('units', $sched) && $sched['units'] !== null)
+                        ? $sched['units']
+                        : DB::raw('units');
+                }
+
+                // Optional/nullable columns: allow setting to null if explicitly provided; otherwise preserve existing
+                foreach (['time', 'classroom', 'course_code', 'course_section'] as $col) {
+                    if (Schema::hasColumn('pending_schedules', $col)) {
+                        if (array_key_exists($col, $sched)) {
+                            $updateData[$col] = $sched[$col]; // may be null, which is allowed for these columns
+                        } else {
+                            $updateData[$col] = DB::raw($col);
+                        }
+                    }
+                }
+
+                // Optional foreign key: only include if column exists
+                if (Schema::hasColumn('pending_schedules', 'faculty_id')) {
+                    if (array_key_exists('faculty_id', $sched)) {
+                        $updateData['faculty_id'] = $sched['faculty_id']; // allow null if client intends to clear
+                    }
+                }
+
+                $updateData['updated_at'] = now();
 
                 // If frontend included possible_assignments or payload, persist it to payload column if present
-                            if (Schema::hasColumn('pending_schedules', 'payload')) {
-                $existing = DB::table('pending_schedules')->where('id', $sched['id'])->value('payload');
-                $existingPayload = is_string($existing) ? json_decode($existing, true) : ($existing ?? []);
+                if (Schema::hasColumn('pending_schedules', 'payload')) {
+                    $existing = DB::table('pending_schedules')->where('id', $sched['id'])->value('payload');
+                    $existingPayload = is_string($existing) ? json_decode($existing, true) : ($existing ?? []);
 
-                if (isset($sched['possible_assignments'])) {
-                    $existingPayload['possible_assignments'] = $sched['possible_assignments'];
+                    if (isset($sched['possible_assignments'])) {
+                        $existingPayload['possible_assignments'] = $sched['possible_assignments'];
+                    }
+
+                    if (isset($sched['payload']) && is_array($sched['payload'])) {
+                        $existingPayload = array_merge($existingPayload, $sched['payload']);
+                    }
+
+                    $updateData['payload'] = json_encode($existingPayload);
                 }
-
-                if (isset($sched['payload']) && is_array($sched['payload'])) {
-                    $existingPayload = array_merge($existingPayload, $sched['payload']);
-                }
-
-                $updateData['payload'] = json_encode($existingPayload);
-            }
-
 
                 DB::table('pending_schedules')
                     ->where('id', $sched['id'])
                     ->where('batch_id', $batchId)
                     ->update($updateData);
+            } else {
+                // Insert new record into this batch
+                $createData = [
+                    'faculty' => $sched['faculty'] ?? 'Unknown',
+                    'subject' => $sched['subject'] ?? 'Untitled',
+                    'units' => $sched['units'] ?? 0,
+                    'academicYear' => $sched['academicYear'] ?? (DB::table('pending_schedules')->where('batch_id', $batchId)->value('academicYear') ?? 'Unknown'),
+                    'semester' => $sched['semester'] ?? (DB::table('pending_schedules')->where('batch_id', $batchId)->value('semester') ?? '1st Semester'),
+                    'status' => 'pending',
+                    'batch_id' => $batchId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+
+                // Optional/nullable columns
+                foreach (['time', 'classroom', 'course_code', 'course_section'] as $col) {
+                    if (Schema::hasColumn('pending_schedules', $col)) {
+                        $createData[$col] = $sched[$col] ?? null; // allow nulls
+                    }
+                }
+                // Optional foreign key and user
+                if (Schema::hasColumn('pending_schedules', 'faculty_id') && array_key_exists('faculty_id', $sched)) {
+                    $createData['faculty_id'] = $sched['faculty_id'];
+                }
+                if (Schema::hasColumn('pending_schedules', 'user_id')) {
+                    $createData['user_id'] = auth()->id();
+                }
+
+                if (Schema::hasColumn('pending_schedules', 'payload') && isset($sched['payload'])) {
+                    $createData['payload'] = json_encode($sched['payload']);
+                }
+
+                DB::table('pending_schedules')->insert($createData);
             }
+        }
+
+        // Delete selected rows, if provided
+        if (!empty($deletedIds)) {
+            DB::table('pending_schedules')
+                ->where('batch_id', $batchId)
+                ->whereIn('id', $deletedIds)
+                ->delete();
         }
 
         DB::commit();

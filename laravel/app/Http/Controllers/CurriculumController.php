@@ -174,4 +174,37 @@ public function store(Request $request)
             Subject::where('curriculum_id', $curriculum_id)->get()
         );
     }
+
+    // 🔹 Update curriculum (e.g., rename)
+    public function update(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $curriculum = Curriculum::findOrFail($id);
+        $curriculum->name = $validated['name'];
+        $curriculum->save();
+
+        return response()->json([
+            'message' => 'Curriculum updated successfully.',
+            'curriculum' => $curriculum,
+        ]);
+    }
+
+    // 🔹 Delete curriculum and its subjects
+    public function destroy($id)
+    {
+        $curriculum = Curriculum::findOrFail($id);
+
+        // Delete all subjects under this curriculum
+        Subject::where('curriculum_id', $curriculum->id)->delete();
+
+        // Delete the curriculum record
+        $curriculum->delete();
+
+        return response()->json([
+            'message' => 'Curriculum deleted successfully.'
+        ]);
+    }
 }

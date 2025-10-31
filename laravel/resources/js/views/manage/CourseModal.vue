@@ -42,7 +42,7 @@
             <label>Curriculum:</label>
             <div class="grid-row gap-2">
               <!-- Dropdown always available -->
-              <select class="col-10 fancy-select" v-model="courseForm.curriculum_id" required>
+              <select class="form-group col-10 " v-model="courseForm.curriculum_id" required>
                 <option value="">Select Curriculum</option>
                 <option
                   v-for="curr in curriculumList"
@@ -152,7 +152,7 @@ export default {
     return {
       
       selectedSemesterKey: "", // current year-semester filter
-      allCurriculumSubjects: [], // store subjects loaded from selected curriculum
+      allCurriculumSubjects: [], // store all subjects for selected curriculum
     };
   },
   computed: {
@@ -209,18 +209,20 @@ export default {
     // Only load curriculum subjects when creating a new course
 "courseForm.curriculum_id": {
   async handler(curriculumId) {
-    // ✅ Only fetch when ADDING new course
-    if (!curriculumId || !this.courseForm.year || this.courseForm.id)
-      return;
+    // ✅ Only when adding new course; fetch regardless of year to cache
+    if (!curriculumId || this.courseForm.id) return;
 
     try {
       const res = await fetch(`/api/curriculums/${curriculumId}/subjects`);
       const subjects = await res.json();
 
-      // Filter subjects by selected course year
-      let filtered = subjects.filter(
-        (s) => s.year_level === this.courseForm.year
-      );
+      // Cache all subjects of the selected curriculum
+      this.allCurriculumSubjects = Array.isArray(subjects) ? subjects : [];
+
+      // If a year is already selected, filter immediately; otherwise wait for year selection
+      let filtered = this.courseForm.year
+        ? this.allCurriculumSubjects.filter((s) => s.year_level === this.courseForm.year)
+        : [];
 
       // ✅ Remove duplicates (same subject_code + subject_title)
       const seen = new Set();
@@ -242,12 +244,60 @@ export default {
       if (this.courseForm.subjects.length) {
         const first = this.courseForm.subjects[0];
         this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
+      } else {
+        this.selectedSemesterKey = "";
       }
     } catch (err) {
       console.error("Failed to load curriculum subjects:", err);
     }
   },
 },
+
+// Re-filter subjects when the Year Level changes (only during Add)
+"courseForm.year": {
+  async handler(newYear) {
+    if (this.courseForm.id) return; // do not auto-alter when editing existing
+    if (!newYear || !this.courseForm.curriculum_id) return;
+
+    // Ensure cache is loaded; if empty, fetch now
+    if (!this.allCurriculumSubjects.length) {
+      try {
+        const res = await fetch(`/api/curriculums/${this.courseForm.curriculum_id}/subjects`);
+        const subjects = await res.json();
+        this.allCurriculumSubjects = Array.isArray(subjects) ? subjects : [];
+      } catch (e) {
+        console.error('Failed to load curriculum subjects on year change', e);
+      }
+    }
+
+    // Use cached subjects from selected curriculum
+    let filtered = this.allCurriculumSubjects.filter(
+      (s) => s.year_level === newYear
+    );
+
+    // De-duplicate by subject_code + subject_title
+    const seen = new Set();
+    filtered = filtered.filter(s => {
+      const key = `${(s.subject_code||'').trim().toLowerCase()}|${(s.subject_title||'').trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    this.courseForm.subjects = filtered.map((s) => ({
+      ...s,
+      id: s.id,
+      course_id: null,
+    }));
+
+    if (this.courseForm.subjects.length) {
+      const first = this.courseForm.subjects[0];
+      this.selectedSemesterKey = `${first.year_level}-${first.semester_id}`;
+    } else {
+      this.selectedSemesterKey = "";
+    }
+  }
+}
 
   },
   methods: {

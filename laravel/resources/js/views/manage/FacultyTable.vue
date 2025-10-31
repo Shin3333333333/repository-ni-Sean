@@ -43,3 +43,7 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+@import './table-styles.css';
+</style>

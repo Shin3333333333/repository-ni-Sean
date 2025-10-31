@@ -195,4 +195,15 @@ class FinalizedScheduleController extends Controller
             'schedules' => $schedules,
         ]);
     }
+
+    public function getFilterOptions()
+    {
+        $academicYears = FinalizedSchedule::distinct()->pluck('academicYear')->filter()->values();
+        $semesters = FinalizedSchedule::distinct()->pluck('semester')->filter()->values();
+
+        return response()->json([
+            'academicYears' => $academicYears,
+            'semesters' => $semesters,
+        ]);
+    }
 }

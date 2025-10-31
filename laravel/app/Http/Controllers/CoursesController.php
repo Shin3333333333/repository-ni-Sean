@@ -96,51 +96,60 @@ public function store(Request $request)
             'subjects' => 'nullable|array'
         ]);
 
-        // Check if curriculum changed
-        $curriculumChanged = isset($validated['curriculum_id']) && $validated['curriculum_id'] != $course->curriculum_id;
+        // Capture old values to detect changes
+        $oldYear = $course->year;
+        $oldCurriculumId = $course->curriculum_id;
 
-        // Update course info
+        // Update course info first
         $course->update($validated);
 
-        // If subjects are included, update existing ones
+        $curriculumChanged = $course->curriculum_id && ($course->curriculum_id != $oldCurriculumId);
+        $yearChanged = isset($validated['year']) && ($validated['year'] !== $oldYear);
+
+        // If subjects are included, update existing ones (only safe fields)
         if (!empty($validated['subjects'])) {
             foreach ($validated['subjects'] as $subjectData) {
                 if (isset($subjectData['id'])) {
+                    $updateData = $subjectData;
+                    unset($updateData['id']);
                     Subject::where('id', $subjectData['id'])
                         ->where('course_id', $course->id)
-                        ->update($subjectData);
+                        ->update($updateData);
                 }
             }
         }
 
-        // If curriculum changed, re-clone only subjects for the course's year
-        if ($curriculumChanged && $course->curriculum_id) {
-            // Delete old subjects linked to this course
+        // If curriculum or year changed, re-clone subjects for the course's current year
+        if (($curriculumChanged || $yearChanged) && $course->curriculum_id) {
+            // Remove existing subjects tied to this course
             Subject::where('course_id', $course->id)->delete();
 
-            // Clone new subjects from the new curriculum for the course's year
+            // Pull base subjects from curriculum (no course_id) for the course's year
             $subjects = Subject::where('curriculum_id', $course->curriculum_id)
                 ->whereNull('course_id')
                 ->where('year_level', $course->year)
                 ->get();
 
             foreach ($subjects as $subject) {
-                foreach ($subjects as $subject) {
-                    Subject::create([
-                        'curriculum_id' => $subject->curriculum_id,
-                        'course_id'     => $course->id,
-                        'year_level'    => $subject->year_level,
-                        'semester_id'   => $subject->semester_id,
-                        'subject_code'  => $subject->subject_code,
-                        'subject_title' => $subject->subject_title,
-                        'lec_units'     => $subject->lec_units ?? 0,
-                        'lab_units'     => $subject->lab_units ?? 0,
-                        'total_units'   => ($subject->lec_units ?? 0) + ($subject->lab_units ?? 0),
-                        'pre_requisite' => $subject->pre_requisite ?? 'None',
-                    ]);
-                }
+                // Avoid duplicates by code+title for safety
+                $exists = Subject::where('course_id', $course->id)
+                    ->whereRaw('LOWER(TRIM(subject_code)) = ?', [strtolower(trim($subject->subject_code))])
+                    ->whereRaw('LOWER(TRIM(subject_title)) = ?', [strtolower(trim($subject->subject_title))])
+                    ->exists();
+                if ($exists) continue;
 
-
+                Subject::create([
+                    'curriculum_id' => $subject->curriculum_id,
+                    'course_id'     => $course->id,
+                    'year_level'    => $subject->year_level,
+                    'semester_id'   => $subject->semester_id,
+                    'subject_code'  => trim($subject->subject_code),
+                    'subject_title' => trim($subject->subject_title),
+                    'lec_units'     => $subject->lec_units ?? 0,
+                    'lab_units'     => $subject->lab_units ?? 0,
+                    'total_units'   => ($subject->lec_units ?? 0) + ($subject->lab_units ?? 0),
+                    'pre_requisite' => $subject->pre_requisite ?? 'None',
+                ]);
             }
         }
 

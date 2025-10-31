@@ -46,6 +46,7 @@ Route::apiResource('rooms', RoomsController::class);
 Route::get('/curriculums', [CurriculumController::class, 'index']);
 Route::post('/curriculums', [CurriculumController::class, 'store']);
 Route::get('/curriculums/{id}/subjects', [CurriculumController::class, 'subjects']);
+Route::put('/curriculums/{id}', [CurriculumController::class, 'update']);
 Route::delete('/curriculums/{id}', [CurriculumController::class, 'destroy']);
 
 /*

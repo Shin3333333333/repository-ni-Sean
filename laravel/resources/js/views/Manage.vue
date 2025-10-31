@@ -6,25 +6,29 @@
         <button :class="{ active: activeTable === 'room' }" @click="setActiveTable('room')">Room</button>
         <button :class="{ active: activeTable === 'course' }" @click="setActiveTable('course')">Course/Section</button>
       </div>
-      <button class="add-btn" @click="addEntry">+ Add</button>
+      <div class="right-actions">
+        <input type="text" v-model="searchQuery" placeholder="Search..." class="search-input">
+        <button v-if="activeTable === 'course'" class="link-btn" @click="openCurriculumList" style="background:none;border:none;color:#2563eb;cursor:pointer;text-decoration:underline;margin-right:12px;padding:0">View all curriculums</button>
+        <button class="add-btn" @click="addEntry">+ Add</button>
+      </div>
     </div>
 
     <!-- Tables -->
     <FacultyTable
       v-if="activeTable === 'faculty'"
-      :faculty-list="facultyList"
+      :faculty-list="filteredFaculty"
       @edit="openEditFacultyModal"
       @delete="removeEntry"
     />
     <RoomTable
       v-if="activeTable === 'room'"
-      :room-list="roomList"
+      :room-list="filteredRooms"
       @edit="openEditRoomModal"
       @delete="removeEntry"
     />
     <CourseTable
       v-if="activeTable === 'course'"
-      :course-list="courseList"
+      :course-list="filteredCourses"
       :curriculum-list="curriculumList"
       @edit="openEditCourseModal"
       @delete="removeEntry"
@@ -55,8 +59,19 @@
       @upload="handleCurriculumUpload"
     />
 
+    <CurriculumListModal
+      v-model:show="showCurriculumListModal"
+      @changed="refreshCurriculums"
+    />
+
     <!-- Global Loading Modal -->
     <LoadingModal />
+    <ConfirmModal
+      :show="confirmOpen"
+      :message="confirmMessage"
+      @cancel="confirmOpen = false"
+      @confirm="confirmAction && confirmAction()"
+    />
   </div>
 </template>
 
@@ -67,17 +82,21 @@ import CourseTable from './manage/CourseTable.vue';
 import FacultyModal from './manage/FacultyModal.vue';
 import RoomModal from './manage/RoomModal.vue';
 import CourseModal from './manage/CourseModal.vue';
+import CurriculumListModal from './manage/CurriculumListModal.vue';
 import LoadingModal from '../components/LoadingModal.vue';
+import ConfirmModal from '../components/ConfirmModal.vue';
+import { useToast } from '../composables/useToast';
 import axios from "axios";
 import { useLoading } from '../composables/useLoading';
 
 export default {
   name: "Manage",
-  components: { FacultyTable, RoomTable, CourseTable, FacultyModal, RoomModal, CourseModal, LoadingModal },
+  components: { FacultyTable, RoomTable, CourseTable, FacultyModal, RoomModal, CourseModal, CurriculumListModal, LoadingModal, ConfirmModal },
 
   data() {
     return {
       activeTable: "faculty",
+      searchQuery: "",
       facultyList: [],
       roomList: [],
       courseList: [],
@@ -87,15 +106,54 @@ export default {
       showFacultyModal: false,
       showRoomModal: false,
       showCourseModal: false,
+      showCurriculumListModal: false,
       roomForm: {},
       courseForm: {},
       selectedFaculty: { unavailableTimes: [], maxLoad: 1 }, // ✅ initiali
+      // confirm modal state
+      confirmOpen: false,
+      confirmMessage: '',
+      confirmAction: null,
     };
+  },
+
+  computed: {
+    filteredFaculty() {
+      if (!this.searchQuery) {
+        return this.facultyList;
+      }
+      return this.facultyList.filter(faculty =>
+        Object.values(faculty).some(value =>
+          String(value).toLowerCase().includes(this.searchQuery.toLowerCase())
+        )
+      );
+    },
+    filteredRooms() {
+      if (!this.searchQuery) {
+        return this.roomList;
+      }
+      return this.roomList.filter(room =>
+        Object.values(room).some(value =>
+          String(value).toLowerCase().includes(this.searchQuery.toLowerCase())
+        )
+      );
+    },
+    filteredCourses() {
+      if (!this.searchQuery) {
+        return this.courseList;
+      }
+      return this.courseList.filter(course =>
+        Object.values(course).some(value =>
+          String(value).toLowerCase().includes(this.searchQuery.toLowerCase())
+        )
+      );
+    },
   },
 
   setup() {
     const { show, hide } = useLoading();
-    return { show, hide };
+    const { success, error, info } = useToast();
+    return { show, hide, success, error, info };
   },
 
   mounted() {
@@ -108,8 +166,17 @@ export default {
   },
 
   methods: {
+    async refreshCurriculums() {
+      this.show();
+      try {
+        await this.loadCurriculums();
+      } finally {
+        this.hide();
+      }
+    },
     async setActiveTable(tab) {
       if (this.activeTable === tab) return;
+      this.searchQuery = "";
       this.show();
       this.activeTable = tab;
       try {
@@ -127,6 +194,9 @@ export default {
       } finally {
         this.hide();
       }
+    },
+    openCurriculumList() {
+      this.showCurriculumListModal = true;
     },
     addEntry() {
     if (this.activeTable === "faculty") {
@@ -378,33 +448,47 @@ else if (type === "room") {
 
     async removeEntry(item) {
       if (!item?.id) return;
-      if (!confirm("Are you sure?")) return;
 
-      this.show(); // show loading
-
-      let url = "";
+      // Open confirm modal, defer action
+      this.confirmMessage = 'Are you sure you want to delete this record? This cannot be undone.';
+      this.confirmOpen = true;
+      this.confirmAction = async () => {
+        this.confirmOpen = false;
+        this.show();
+        let url = "";
       if (this.activeTable === "faculty") url = `/api/professors/${item.id}`;
       else if (this.activeTable === "room") url = `/api/rooms/${item.id}`;
       else if (this.activeTable === "course") url = `/api/courses/${item.id}`;
-
-      try {
-        await axios.delete(url);
-
-        const list =
-          this.activeTable === "faculty"
-            ? this.facultyList
-            : this.activeTable === "room"
-            ? this.roomList
-            : this.courseList;
-
-        const idx = list.findIndex(e => e.id === item.id);
-        if (idx > -1) list.splice(idx, 1);
-      } catch (err) {
-        console.error("Delete failed:", err);
-      } finally {
-        this.hide(); // hide loading
-      }
+        try {
+          await axios.delete(url);
+          const list = this.activeTable === "faculty" ? this.facultyList : this.activeTable === "room" ? this.roomList : this.courseList;
+          const idx = list.findIndex(e => e.id === item.id);
+          if (idx > -1) list.splice(idx, 1);
+          this.success('Deleted successfully');
+        } catch (err) {
+          console.error("Delete failed:", err);
+          this.error('Delete failed');
+        } finally {
+          this.hide();
+        }
+      };
     },
   },
 };
 </script>
+
+<style scoped>
+.search-input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-right: 1rem;
+}
+
+.search-input:focus {
+  border-color: #2563eb;
+}
+</style>

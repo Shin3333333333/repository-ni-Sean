@@ -11,7 +11,7 @@
         />
       </div>
       <div class="col-6 right-controls">
-        <button @click="exitSchedule" class="exit-btn">Exit</button>
+
       </div>
     </div>
 
@@ -45,21 +45,20 @@
         </tbody>
       </table>
     </div>
-
-    <!-- ====== Modal for selected batch ====== -->
+<!-- ====== Modal for selected batch ====== -->
     <div v-if="showModal && selectedBatch" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content">
         <div class="modal-header">
           <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
-          
+
           <!-- Academic Year and Semester Input -->
           <div class="academic-info" v-if="academicYear === 'Unknown Year' || semester === 'Unknown Semester'">
             <div class="input-group">
               <label for="academicYearInput">📅 Academic Year:</label>
-              <input 
-                id="academicYearInput" 
-                v-model="academicYear" 
-                type="text" 
+              <input
+                id="academicYearInput"
+                v-model="academicYear"
+                type="text"
                 placeholder="e.g., 2024-2025"
                 class="academic-input"
               />
@@ -78,7 +77,7 @@
               ⚠️ Please set the correct Academic Year and Semester before finalizing
             </div>
           </div>
-          
+
           <div class="faculty-filter">
             <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
             <select id="facultySelect" v-model="facultyFilter" class="filter-select">
@@ -101,14 +100,48 @@
     <button v-if="editMode" class="save-btn" @click="saveChanges">
       💾 Save Changes
     </button>
-    <button class="undo-btn" @click="undoLastAction">
+    <div v-if="editMode" class="add-row-group">
+      <button class="add-row-btn" @click="toggleAddRowPicker">➕ Add Row</button>
+      <div v-if="showAddRowPicker && !deleteMode" class="add-row-popover">
+        <select v-model="selectedAddFaculty" class="add-row-select" @change="handleAddRowSelect">
+          <option disabled value="">Select faculty…</option>
+          <option v-for="name in facultyOptions" :key="name" :value="name">{{ name }}</option>
+        </select>
+      </div>
+      <template v-if="!deleteMode">
+        <button class="delete-btn" @click="toggleDeleteMode">🗑 Delete Rows</button>
+      </template>
+      <template v-else>
+        <button class="delete-btn" :disabled="!selectedRows.length" @click="openDeleteConfirm">
+          🗑 Delete Selected ({{ selectedRows.length || 0 }})
+        </button>
+        <button class="exit-btn" @click="toggleDeleteMode">Cancel</button>
+      </template>
+    </div>
+    <button v-if="editMode" class="undo-btn" @click="undoLastAction">
       ↩️ Undo Last Action
     </button>
     <button class="finalize-btn" @click="finalizeSchedule()">Finalize</button>
-    <button class="delete-btn" @click="deleteBatch(selectedBatch)">Delete</button>
+
     <button class="exit-btn" @click="closeModal">Exit</button>
   </div>
+
 </div>
+<!-- Toast -->
+<div v-if="message" :class="['toast', messageType]">{{ message }}</div>
+
+<!-- Delete confirmation modal -->
+<div v-if="showDeleteConfirm" class="modal-overlay" @click.self="cancelDeleteConfirm">
+  <div class="modal-content">
+    <h3>Confirm Deletion</h3>
+    <p>Delete {{ selectedRows.length }} selected row(s)? You can undo before saving.</p>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top: 10px;">
+      <button class="exit-btn" @click="cancelDeleteConfirm">Cancel</button>
+      <button class="delete-btn" @click="deleteSelectedRows" :disabled="!selectedRows.length">Delete</button>
+    </div>
+  </div>
+</div>
+
         </div>
 
         <!-- ====== Summary Overview ====== -->
@@ -137,7 +170,12 @@
         >
           <div class="unassigned-header">
             <h4>Unassigned Subjects (Quick Assign)</h4>
-            <button class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button v-if="editMode" class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+              <button v-if="editMode" class="auto-assign-btn" @click="manualAssignMode = !manualAssignMode">
+                ✍️ {{ manualAssignMode ? 'Manual Assign: ON' : 'Manual Assign' }}
+              </button>
+            </div>
           </div>
 
           <table class="create-table stylish-table">
@@ -147,38 +185,52 @@
                 <th>Subject Title</th>
                 <th>Course Section</th>
                 <th>Units</th>
-                <th>Possible Assignments</th>
+                <th>{{ manualAssignMode ? 'Faculty Selection' : 'Possible Assignments' }}</th>
               </tr>
             </thead>
             <tbody>
               <tr
                 v-for="u in pendingSchedules.filter(s => !s.faculty || s.faculty === 'Unknown')"
                 :key="u.id"
+                :style="{ background: getSuggestionColor(getPossibleAssignments(u).length) }"
               >
                 <td>{{ u.subject_code || u.subject_code_label || '—' }}</td>
                 <td>{{ u.subject || u.subject_title || '—' }}</td>
                 <td>{{ u.course_section || '—' }}</td>
                 <td>{{ u.units || 3 }}</td>
                 <td>
-                  <select
-                    v-if="getPossibleAssignments(u).length"
-                    @change="assignSuggestion(u.id, JSON.parse($event.target.value))"
-                    class="fancy-select"
-                    :disabled="!editMode"
-                  >
-                    <option value="">Select Possible Assignment</option>
-                    <option
-                      v-for="(pa, i) in getPossibleAssignments(u)"
-                      :key="i"
-                      :value="JSON.stringify(pa)"
+                  <template v-if="!manualAssignMode">
+                    <select
+                      v-if="getPossibleAssignments(u).length"
+                      @change="assignSuggestion(u.id, JSON.parse($event.target.value))"
+                      class="fancy-select"
+                      :disabled="!editMode"
+                      style="width: 100%;"
                     >
-                      {{ pa.faculty_name || pa.faculty }} — {{ pa.time || pa.time_slot_label }}
-                      ({{ pa.room_name || pa.classroom }})
-                      • {{ pa.faculty_department || pa.department || '—' }}
-                      <span v-if="suggestionFlags(pa, u).bestFit">⭐ Best Fit</span>
-                    </option>
-                  </select>
-                  <span v-else class="no-assignments">No possible assignments</span>
+                      <option value="">Select Possible Assignment</option>
+                      <option
+                        v-for="(pa, i) in getPossibleAssignments(u)"
+                        :key="i"
+                        :value="JSON.stringify(pa)"
+                      >
+                        {{ formatFacultyFromOption(pa) }} — {{ pa.time || pa.time_slot_label }}
+                        ({{ pa.room_name || pa.classroom }})
+                        <span v-if="suggestionFlags(pa, u).bestFit">⭐ Best Fit</span>
+                      </option>
+                    </select>
+                    <span v-else class="no-assignments">No possible assignments</span>
+                  </template>
+                  <template v-else>
+                    <select
+                      @change="onManualAssign(u, $event.target.value)"
+                      class="fancy-select"
+                      :disabled="!editMode"
+                      style="width: 100%;"
+                    >
+                      <option value="">Select Faculty</option>
+                      <option v-for="name in facultyOptions" :key="name" :value="name">{{ name }}</option>
+                    </select>
+                  </template>
                 </td>
               </tr>
             </tbody>
@@ -187,13 +239,13 @@
 
       <!-- ====== Faculty Groups Table ====== -->
 <div v-for="(facultySchedules, facultyName) in groupedByFaculty" :key="facultyName" class="faculty-section">
-  <h4>{{ facultyName }}</h4>
+  <h4>{{ formatFacultyHeaderPending(facultyName) }}</h4>
 
   <table class="create-table">
     <thead>
       <tr>
         <th v-if="editMode">⇅</th>
-        <th v-if="deleteMode">
+        <th v-if="editMode && deleteMode">
           <input type="checkbox" @change="toggleAll($event, facultySchedules)" />
         </th>
         <th v-for="col in tableColumns" :key="col">{{ col }}</th>
@@ -213,7 +265,7 @@
   :title="element.conflict ? getConflictTooltip(element) : ''"
 >
   <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
-  <td v-if="deleteMode">
+  <td v-if="editMode && deleteMode">
     <input type="checkbox" v-model="selectedRows" :value="element.id" />
   </td>
 
@@ -232,7 +284,7 @@
       v-if="isEditingCell(facultyName, index, col)"
       v-model="editableValue"
       @blur="saveEdit(facultyName, index, col)"
-      @keyup.enter="saveEdit(facultyName, index, col)"
+      @keyup.enter.stop.prevent="saveEdit(facultyName, index, col)"
       class="edit-input"
       autofocus
     />
@@ -254,8 +306,8 @@
             class="suggestion-row"
           >
             <div class="s-left">
-              <div class="s-title">{{ sug.faculty_name || sug.faculty || 'Faculty' }}</div>
-              <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }} • {{ sug.faculty_department || sug.department || '—' }}</div>
+              <div class="s-title">{{ formatFacultyFromOption(sug) }}</div>
+              <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
             </div>
             <div class="s-right">
               <div class="badges">
@@ -266,9 +318,10 @@
               </div>
               <div class="s-actions">
                 <button
+                  v-if="editMode"
                   class="assign-btn small"
                   @click.stop="assignSuggestion(element.id, sug)"
-                  :disabled="suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
+                  :disabled="!editMode || suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
                 >Assign</button>
               </div>
             </div>
@@ -289,7 +342,7 @@
   </div>
 </div>
 
-        <button class="close-btn" @click="closeModal">Close</button>
+
       </div>
     </div>
 
@@ -316,8 +369,10 @@ export default {
       editMode: false,
       deleteMode: false,
       selectedRows: [],
+      deletedIds: [],
       editableCell: null,
       editableValue: "",
+      savingEdit: false,
       tableColumns: ["Subject Code","Subject", "Time", "Classroom",  "Course Section", "Units"],
       dragData: null,
       facultyFilter: "",
@@ -328,6 +383,14 @@ export default {
       professorsByName: {},
       academicYear: "Unknown Year",
       semester: "Unknown Semester",
+      showAddRowPicker: false,
+        manualAssignMode: false,
+selectedAddFaculty: "",
+      showDeleteConfirm: false,
+      message: "",
+      messageType: "",
+
+
     };
   },
   setup() {
@@ -366,6 +429,18 @@ export default {
       }
       return grouped;
     },
+    facultyOptions() {
+      const names = new Set();
+      const profs = Array.isArray(this.professors) ? this.professors : [];
+      for (const p of profs) {
+        const n = (p && p.name) ? p.name.toString().trim() : '';
+        if (n) names.add(n);
+      }
+      const grouped = this.groupedByFaculty || {};
+      Object.keys(grouped).forEach(n => { if (n) names.add(n); });
+      return Array.from(names).sort((a,b)=>a.localeCompare(b));
+    },
+
     totalAssigned() {
       return this.pendingSchedules.filter(s => s.faculty && s.faculty !== "Unknown").length;
     },
@@ -374,33 +449,103 @@ export default {
     },
 totalConflicts() {
   let conflicts = 0;
-  const seenFac = {};
-  const seenRoom = {};
+  const schedules = this.pendingSchedules;
 
-  for (const s of this.pendingSchedules) {
-    // Skip unassigned subjects
-    if (!s.faculty || s.faculty === "Unknown" || !s.time || !s.classroom) continue;
+  for (let i = 0; i < schedules.length; i++) {
+    const a = schedules[i];
+    for (let j = i + 1; j < schedules.length; j++) {
+      const b = schedules[j];
 
-    const keyFac = `${s.faculty}|${s.time}`;
-    const keyRoom = `${s.classroom}|${s.time}`;
+      if (!a.time || !b.time) continue;
+      if (!this.timesOverlap(a.time, b.time)) continue;
 
-    if (seenFac[keyFac]) conflicts++;
-    else seenFac[keyFac] = true;
-
-    if (seenRoom[keyRoom]) conflicts++;
-    else seenRoom[keyRoom] = true;
+      // Faculty
+      if (a.faculty && b.faculty && a.faculty !== 'Unknown' && b.faculty !== 'Unknown' && a.faculty === b.faculty) conflicts++;
+      // Room
+      if (a.classroom && b.classroom && a.classroom === b.classroom) conflicts++;
+      // Course Section
+      const aSec = (a.course_section || '').toString().trim().toLowerCase();
+      const bSec = (b.course_section || '').toString().trim().toLowerCase();
+      if (aSec && bSec && aSec === bSec) conflicts++;
+      // Subject duplicate within same Course Section
+      const aSub = (a.subject_code || a.subject || '').toString().trim().toLowerCase();
+      const bSub = (b.subject_code || b.subject || '').toString().trim().toLowerCase();
+      if (aSub && bSub && aSub === bSub && aSec && bSec && aSec === bSec) conflicts++;
+    }
   }
 
   return conflicts;
 }
 
   },
-  methods: { 
+  methods: {
+    getSuggestionColor(count) {
+      if (count === 0) return '#ffcccc'; // Red for no suggestions
+      if (count < 3) return '#ffebcc'; // Orange for few suggestions
+      return '#ffffff'; // Default
+    },
+    // --- Formatting helpers for faculty display in modal ---
+    humanizeFacultyType(raw) {
+      if (!raw) return null;
+      const toTitleCaseHyphen = (str) => str
+        .replace(/_/g, '-')
+        .split('-')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+        .join('-');
+      return String(raw)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(toTitleCaseHyphen)
+        .join(', ');
+    },
+    formatFacultyFromOption(opt) {
+      const name = opt.faculty_name || opt.faculty || 'Faculty';
+      const typeRaw = opt.faculty_type || opt.type || null;
+      const dept = opt.faculty_department || opt.department || null;
+      const type = this.humanizeFacultyType(typeRaw);
+      if (type && dept) return `${name} (${type}, ${dept})`;
+      if (type) return `${name} (${type})`;
+      if (dept) return `${name} (${dept})`;
+      return name;
+    },
+    formatFacultyHeaderPending(facultyName) {
+      // Prefer data from professorsByName if available
+      const key = (facultyName || '').toString().trim().toLowerCase();
+      const prof = this.professorsByName[key] || null;
+      let type = null;
+      let dept = null;
+      if (prof) {
+        type = this.humanizeFacultyType(prof.type || prof.faculty_type || null);
+        dept = prof.department || null;
+      }
+      // Fallback: scan possible_assignments for this faculty name
+      if (!type || !dept) {
+        for (const s of this.pendingSchedules) {
+          const arr = s._original_possible_assignments || s.possible_assignments || [];
+          const match = arr.find(o => (o.faculty_name || o.faculty) && (o.faculty_name || o.faculty).toString().trim().toLowerCase() === key);
+          if (match) {
+            type = type || this.humanizeFacultyType(match.faculty_type || match.type || null);
+            dept = dept || match.faculty_department || match.department || null;
+            if (type && dept) break;
+          }
+        }
+      }
+      if (type && dept) return `${facultyName} (${type}, ${dept})`;
+      if (type) return `${facultyName} (${type})`;
+      if (dept) return `${facultyName} (${dept})`;
+      return facultyName;
+    },
 // --- Finalize schedule ---
 
 checkAssignmentConflict(newAssignment) {
   const newSlot = this.normalizeSlotLabel(newAssignment.time_slot_label || newAssignment.time);
   if (!newSlot) return false;
+
+
+
 
   // Extract day and time from the slot label
   const [newDay, newTimeRange] = newSlot.split(" ");
@@ -450,7 +595,7 @@ onDrop(event, targetFaculty, targetRowIndex) {
   if (!this.dragData) return;
 
   const { sourceId } = this.dragData;
-  const sourceRowIndex = this.pendingSchedules.findIndex(s => s.id === sourceId);
+const sourceRowIndex = this.pendingSchedules.findIndex(s => s.id === sourceId);
   if (sourceRowIndex === -1) return;
   const sourceRow = this.pendingSchedules[sourceRowIndex];
 
@@ -480,8 +625,8 @@ onDrop(event, targetFaculty, targetRowIndex) {
 
     if (targetRow) {
       const targetIndex = this.pendingSchedules.indexOf(targetRow);
-      this.$set(this.pendingSchedules, sourceRowIndex, targetRow);
-      this.$set(this.pendingSchedules, targetIndex, sourceRow);
+      // Vue 3: swap via direct assignment (reactive)
+      [this.pendingSchedules[sourceRowIndex], this.pendingSchedules[targetIndex]] = [targetRow, sourceRow];
     } else {
       // If no target row, move to end
       this.pendingSchedules.splice(sourceRowIndex, 1);
@@ -500,51 +645,98 @@ onDrop(event, targetFaculty, targetRowIndex) {
 
   getConflictTooltip(row) {
     if (!row.conflict) return '';
-    const conflicts = this.pendingSchedules
-      .filter(r => r.id !== row.id && r.time === row.time && (r.faculty === row.faculty || r.classroom === row.classroom))
-      .map(r => `${r.subject} (${r.faculty} / ${r.classroom})`);
-    return conflicts.join('\n');
+    const out = [];
+    for (const r of this.pendingSchedules) {
+      if (r.id === row.id) continue;
+      if (!this.timesOverlap(r.time, row.time)) continue;
+      const reasons = [];
+      // Faculty
+      if (r.faculty && row.faculty && r.faculty !== 'Unknown' && row.faculty !== 'Unknown' && r.faculty === row.faculty) reasons.push('Faculty');
+      // Room
+      if (r.classroom && row.classroom && r.classroom === row.classroom) reasons.push('Room');
+      // Course Section
+      const rSec = (r.course_section || '').toString().trim().toLowerCase();
+      const rowSec = (row.course_section || '').toString().trim().toLowerCase();
+      if (rSec && rowSec && rSec === rowSec) reasons.push('Course Section');
+      // Subject (only if same section too)
+      const rSub = (r.subject_code || r.subject || '').toString().trim().toLowerCase();
+      const rowSub = (row.subject_code || row.subject || '').toString().trim().toLowerCase();
+      if (rSub && rowSub && rSub === rowSub && rSec && rowSec && rSec === rowSec) reasons.push('Subject');
+      if (reasons.length) out.push(`${r.subject || r.subject_code || '—'} [${reasons.join(', ')}]`);
+    }
+    return out.join('\n');
   },
 
 detectConflicts() {
-  // Reset all conflicts
-  this.pendingSchedules.forEach(row => row.conflict = false);
+    const schedules = this.pendingSchedules;
+    const conflicted = new Set();
+    const messages = {};
 
-  // Faculty conflicts: same faculty & same time
-  const byFaculty = {};
-  this.pendingSchedules.forEach(row => {
-    if (!row.faculty || row.faculty.toLowerCase() === 'unknown') return;
-    if (!byFaculty[row.faculty]) byFaculty[row.faculty] = [];
-    byFaculty[row.faculty].push(row);
-  });
+    // Reset all conflict flags first
+    for (const s of schedules) {
+      s.conflict = false;
+    }
 
-  Object.values(byFaculty).forEach(rows => {
-    for (let i = 0; i < rows.length; i++) {
-      for (let j = i + 1; j < rows.length; j++) {
-        if (!rows[i].time || !rows[j].time) continue;
-        if (rows[i].time === rows[j].time) {
-          rows[i].conflict = true;
-          rows[j].conflict = true;
+    for (let i = 0; i < schedules.length; i++) {
+      const a = schedules[i];
+      for (let j = i + 1; j < schedules.length; j++) {
+        const b = schedules[j];
+
+        if (!a.time || !b.time) continue;
+        if (!this.timesOverlap(a.time, b.time)) continue;
+
+        const reasonsA = messages[a.id] ? messages[a.id].slice() : [];
+        const reasonsB = messages[b.id] ? messages[b.id].slice() : [];
+        let any = false;
+
+        // Faculty conflict
+        const sameFaculty = a.faculty && b.faculty && a.faculty !== 'Unknown' && b.faculty !== 'Unknown' && a.faculty === b.faculty;
+        if (sameFaculty) { reasonsA.push('Faculty and time overlap'); reasonsB.push('Faculty and time overlap'); any = true; }
+
+        // Room conflict
+        const sameRoom = a.classroom && b.classroom && a.classroom === b.classroom;
+        if (sameRoom) { reasonsA.push('Room and time overlap'); reasonsB.push('Room and time overlap'); any = true; }
+
+        // Course Section conflict
+        const aSec = (a.course_section || '').toString().trim().toLowerCase();
+        const bSec = (b.course_section || '').toString().trim().toLowerCase();
+        const sameSection = aSec && bSec && aSec === bSec;
+        if (sameSection) { reasonsA.push('Course Section and time overlap'); reasonsB.push('Course Section and time overlap'); any = true; }
+
+        // Subject duplicate within same Course Section conflict
+        const aSub = (a.subject_code || a.subject || '').toString().trim().toLowerCase();
+        const bSub = (b.subject_code || b.subject || '').toString().trim().toLowerCase();
+        const sameSubject = aSub && bSub && aSub === bSub;
+        if (sameSubject && sameSection) { reasonsA.push('Subject duplicate in same Course Section/time'); reasonsB.push('Subject duplicate in same Course Section/time'); any = true; }
+
+        if (any) {
+          conflicted.add(a.id);
+          conflicted.add(b.id);
+          a.conflict = true;
+          b.conflict = true;
+          messages[a.id] = Array.from(new Set(reasonsA));
+          messages[b.id] = Array.from(new Set(reasonsB));
         }
       }
     }
-  });
 
-  // Room conflicts: same room & same time, skip unassigned
-  const assignedRows = this.pendingSchedules.filter(r => r.faculty && r.faculty.toLowerCase() !== 'unknown');
-  for (let i = 0; i < assignedRows.length; i++) {
-    for (let j = i + 1; j < assignedRows.length; j++) {
-      const a = assignedRows[i];
-      const b = assignedRows[j];
-      if (!a.time || !b.time || !a.room_name || !b.room_name) continue;
-      if (a.room_name === b.room_name && a.time === b.time) {
-        a.conflict = true;
-        b.conflict = true;
-      }
+    // Write messages as strings
+    this.conflictMessages = {};
+    for (const [id, arr] of Object.entries(messages)) {
+      this.conflictMessages[id] = arr.join('; ');
     }
-  }
-}
-,
+
+    this.conflictedSchedules = Array.from(conflicted);
+
+    // Force a re-render to show new conflict messages
+    this.$forceUpdate();
+},
+timesOverlap(timeStr1, timeStr2) {
+  if (!timeStr1 || !timeStr2) return false;
+  const a = this.normalizeSlotLabel(timeStr1);
+  const b = this.normalizeSlotLabel(timeStr2);
+  return this.slotLabelsOverlap(a, b);
+},
 
 // Optional drag handlers (keep if you already use them)
 handleDragStart(facultyName, event) {
@@ -577,28 +769,144 @@ isEditingCell(faculty, row, col) {
      // 3️⃣ Record a manual edit
 // 3️⃣ Record a manual edit
 saveEdit(faculty, rowIndex, col) {
-  const key = col.toLowerCase().replace(" ", "_");
-  const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
-  const editedRow = facultyRows[rowIndex];
-  if (!editedRow) return;
+  if (this.savingEdit) return; // prevent double-run from enter+blur
+  // Only commit if this cell is still the active edit target
+  if (!this.isEditingCell(faculty, rowIndex, col)) return;
+  this.savingEdit = true;
+  try {
+    const key = col.toLowerCase().replace(" ", "_");
+    const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
+    const editedRow = facultyRows[rowIndex];
+    if (!editedRow) return;
 
-  // Save previous value
-  this.actionHistory.push({
-    type: "edit",
-    subjectId: editedRow.id,
-    prevValue: editedRow[key],
-    key
-  });
+    const prev = editedRow[key];
 
-  editedRow[key] = this.editableValue;
-  this.editableCell = null;
-  this.editableValue = "";
-  this.pendingSchedules = [...this.pendingSchedules];
+    // Only record if it actually changes
+    if (prev !== this.editableValue) {
+      this.actionHistory.push({
+        type: "edit",
+        subjectId: editedRow.id,
+        prevValue: prev,
+        key
+      });
+    }
+
+    editedRow[key] = this.editableValue;
+    // Clear edit state so blur handler (firing after Enter) won't re-save
+    this.editableCell = null;
+    this.editableValue = "";
+
+    // ✅ Rebuild used slots & rooms after manual edit
+    this.usedSlots = {};
+    this.usedRooms = {};
+    for (const s of this.pendingSchedules) {
+      if (s.faculty && s.faculty !== "Unknown" && s.time && s.classroom) {
+        this.markUsedSlotAndRoom(s.assigned_faculty_id || s.faculty, s.assigned_room_id || s.classroom, s.time);
+      }
+    }
+
+    // ✅ Detect conflicts after manual edit
+    this.detectConflicts();
+
+    // ✅ Refresh AI suggestions after manual edit
+    this.refreshAISuggestions();
+
+    // ✅ Force re-render
+    this.pendingSchedules = [...this.pendingSchedules];
+    this.$forceUpdate();
+  } finally {
+    this.savingEdit = false;
+  }
 },
+
+// Add Row flow
+toggleAddRowPicker() {
+  if (!this.editMode) this.editMode = true;
+  this.showAddRowPicker = !this.showAddRowPicker;
+  if (this.showAddRowPicker) this.selectedAddFaculty = "";
+},
+addRowForFaculty(facultyName, targetRowIndex = null) {
+  if (!facultyName) return;
+  const id = this.generateTempId();
+  const key = (facultyName || '').toString().trim().toLowerCase();
+  const prof = this.professorsByName[key] || null;
+  const facultyId = prof && prof.id != null ? prof.id : null;
+
+  const newRow = {
+    id,
+    isNew: true,
+    faculty: facultyName,
+    faculty_id: facultyId,
+    subject_code: "",
+    subject: "",
+    time: "",
+    classroom: "",
+    course_section: "",
+    units: "",
+    conflict: false,
+    payload: {}
+  };
+
+  // Insert at specific position if targetRowIndex provided
+  if (targetRowIndex !== null) {
+    this.pendingSchedules.splice(targetRowIndex + 1, 0, newRow);
+  } else {
+    this.pendingSchedules.push(newRow);
+  }
+
+  this.actionHistory.push({ type: 'add_row', subjectId: id });
+  this.detectConflicts();
+  this.refreshAISuggestions();
+
+  // Find the new row's position for editing
+  const newRowIndex = this.pendingSchedules.findIndex(s => s.id === id);
+  const facultyRows = this.pendingSchedules.filter(s => s.faculty === facultyName);
+  const relativeIndex = facultyRows.findIndex(s => s.id === id);
+
+  if (relativeIndex >= 0) {
+    this.enableEdit(facultyName, relativeIndex, 'Subject Code');
+    this.editableValue = '';
+  }
+
+  this.pendingSchedules = [...this.pendingSchedules];
+  this.$forceUpdate();
+  this.showAddRowPicker = false;
+},
+generateTempId() {
+  const nums = this.pendingSchedules
+    .map(s => (typeof s.id === 'number' ? s.id : parseInt(s.id, 10)))
+    .filter(n => !isNaN(n));
+  if (nums.length) return Math.max(...nums) + 1;
+  return `tmp_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+},
+
+handleAddRowSelect() {
+  const name = this.selectedAddFaculty;
+  if (!name) return;
+  this.addRowForFaculty(name);
+  this.selectedAddFaculty = "";
+  this.showAddRowPicker = false;
+},
+
+// Toast helpers
+showError(msg) {
+  this.message = msg;
+  this.messageType = "error";
+  clearTimeout(this._toastTimer);
+  this._toastTimer = setTimeout(() => (this.message = ""), 5000);
+},
+showSuccess(msg) {
+  this.message = msg;
+  this.messageType = "success";
+  clearTimeout(this._toastTimer);
+  this._toastTimer = setTimeout(() => (this.message = ""), 5000);
+},
+
+
 
 // 4️⃣ Undo function
 undoLastAction() {
-  if (!this.actionHistory.length) return alert("Nothing to undo!");
+  if (!this.actionHistory.length) return this.showError("Nothing to undo!");
 
   const lastAction = this.actionHistory.pop();
 
@@ -613,6 +921,21 @@ undoLastAction() {
   } else if (lastAction.type === "edit") {
     const target = this.pendingSchedules.find(s => s.id === lastAction.subjectId);
     if (target && lastAction.key) target[lastAction.key] = lastAction.prevValue;
+  } else if (lastAction.type === "add_row") {
+    this.pendingSchedules = this.pendingSchedules.filter(s => s.id !== lastAction.subjectId);
+  } else if (lastAction.type === "delete_rows") {
+    if (Array.isArray(lastAction.rows) && lastAction.rows.length) {
+      this.pendingSchedules = [...this.pendingSchedules, ...lastAction.rows];
+      // Remove restored IDs from deletion list
+      const restoredIds = (lastAction.rows || [])
+        .map(r => r && r.id)
+        .filter(id => !isNaN(Number(id)))
+        .map(id => Number(id));
+      if (restoredIds.length) {
+        this.deletedIds = this.deletedIds.filter(id => !restoredIds.includes(Number(id)));
+      }
+
+    }
   }
 
   // ✅ Rebuild used slots & rooms after undo
@@ -705,7 +1028,7 @@ undoLastAction() {
         });
       });
     },
-  
+
     updateFacultyAssignments(selectedFacultyId, assignedSubject) {
       const { time_day, time_start, time_end, room_id } = assignedSubject;
 
@@ -766,13 +1089,15 @@ getPossibleAssignments(subject) {
     if (!pa.faculty_id && pa.id) {
       pa.faculty_id = pa.id;
     }
-    
+
     const flags = this.suggestionFlags(pa, subject);
     let score = 0;
 
     // Higher score = better match
-    if (flags.deptMatch) score += 3;
-    if (!flags.willExceed) score += 2;
+    const isLab = this.isLaboratorySubject(subject);
+    if (isLab && flags.deptMatch) score += 10; else if (flags.deptMatch) score += 3;
+    if (isLab && !flags.deptMatch) score -= 5;
+if (!flags.willExceed) score += 2;
     if (flags.underload) score += 1;
     if (!flags.conflictsExistingSlot && !flags.conflictsExistingRoom) score += 2;
     if (!flags.conflictsCourseSection) score += 1;
@@ -791,7 +1116,7 @@ getPossibleAssignments(subject) {
     const facultyId = pa.faculty_id || pa.id;
     const name = pa.faculty_name || pa.faculty || 'Unknown';
     const key = facultyId ? `${facultyId}-${name}` : name;
-    
+
     if (!grouped[key]) grouped[key] = [];
     if (grouped[key].length < 2) grouped[key].push(pa);
   }
@@ -828,25 +1153,14 @@ checkRoomConflict(roomIdentifier, slotLabel) {
 },
 
   isTimeOverlap(timeA, timeB) {
-    const parse = t => {
-      const [day, times] = t.split(" ");
-      const [start, end] = times.split("-");
-      return { day, start, end };
-    };
-    try {
-      const a = parse(timeA);
-      const b = parse(timeB);
-      if (a.day !== b.day) return false;
-      return !(a.end <= b.start || b.end <= a.start);
-    } catch {
-      return false;
-    }
+    // Delegate to the robust overlap checker
+    return this.timesOverlap(timeA, timeB);
   },
     getBestMatch(subject) {
     if (!this.possible_assignments || !this.possible_assignments.length) return null;
 
     const valid = this.possible_assignments
-      .filter(a => 
+      .filter(a =>
         a.subject_code === subject.subject_code &&
         a.faculty_current_load < a.faculty_max_load &&
         !this.hasConflict(a, subject)
@@ -859,6 +1173,26 @@ checkRoomConflict(roomIdentifier, slotLabel) {
       });
 
     return valid[0] || null;
+  },
+
+  // Toggle-based manual assignment: move unassigned subject under selected faculty with empty time/classroom
+  onManualAssign(subject, facultyName) {
+    if (!facultyName) return;
+    const key = (facultyName || '').toString().trim().toLowerCase();
+    const prof = this.professorsByName[key] || null;
+    const facultyId = prof && prof.id != null ? prof.id : null;
+
+    subject.faculty = facultyName;
+    subject.assigned_faculty_id = facultyId;
+    subject.faculty_id = facultyId;
+    subject.time = "";
+    subject.classroom = "";
+
+    this.actionHistory.push({ type: 'manual_assign', subjectId: subject.id, facultyName });
+    // Refresh UI and recompute suggestions/conflicts
+    this.refreshAISuggestions && this.refreshAISuggestions();
+    this.detectConflicts && this.detectConflicts();
+    this.$forceUpdate();
   },
 
   hasConflict(assignment, subject) {
@@ -908,7 +1242,7 @@ toMinutes(t) {
 },
 
 async deleteBatch(batchId) {
-  if (!batchId) return alert("No batch selected to delete.");
+  if (!batchId) return this.showError("No batch selected to delete.");
   if (!confirm("Are you sure you want to delete this batch? This cannot be undone.")) return;
 
   this.show();
@@ -919,15 +1253,15 @@ async deleteBatch(batchId) {
     });
     const data = await res.json();
     if (data.success) {
-      alert("✅ Batch deleted successfully!");
+      this.showSuccess("✅ Batch deleted successfully!");
       this.loadPendingSchedules();
       if (this.selectedBatch === batchId) this.selectedBatch = null;
     } else {
-      alert("❌ Failed to delete batch: " + (data.message || "Unknown error"));
+      this.showError("❌ Failed to delete batch: " + (data.message || "Unknown error"));
     }
   } catch (err) {
     console.error(err);
-    alert("Network error while deleting batch.");
+    this.showError("Network error while deleting batch.");
   } finally {
     this.hide();
   }
@@ -939,6 +1273,68 @@ normalizeSlotLabel(label) {
   if (!p) return label || "";
   const fmt = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
   return `${p.day} ${fmt(p.start)}-${fmt(p.end)}`;
+},
+
+
+openDeleteConfirm() {
+  if (!this.selectedRows.length) return;
+  this.showDeleteConfirm = true;
+},
+
+cancelDeleteConfirm() {
+  this.showDeleteConfirm = false;
+},
+
+deleteSelectedRows() {
+  if (!this.selectedRows.length) return;
+  // Soft delete locally only (undoable); no server call
+  this.showDeleteConfirm = false;
+
+  const selectedSet = new Set(this.selectedRows);
+  const removedRows = this.pendingSchedules.filter(s => selectedSet.has(s.id));
+  // Track persisted IDs for server-side deletion on save
+  const persistedIds = removedRows
+    .map(r => r && r.id)
+    .filter(id => !isNaN(Number(id)))
+    .map(id => Number(id));
+  if (persistedIds.length) {
+    const set = new Set(this.deletedIds.map(n => Number(n)));
+    persistedIds.forEach(id => set.add(id));
+    this.deletedIds = Array.from(set);
+  }
+
+  if (removedRows.length) {
+    this.actionHistory.push({ type: 'delete_rows', rows: removedRows });
+  }
+
+  this.pendingSchedules = this.pendingSchedules.filter(s => !selectedSet.has(s.id));
+
+  // Clear selection and refresh UI
+  this.selectedRows = [];
+  this.detectConflicts();
+  this.refreshAISuggestions();
+  this.$forceUpdate();
+},
+
+toggleDeleteMode() {
+  this.deleteMode = !this.deleteMode;
+  if (!this.deleteMode) {
+    this.selectedRows = [];
+  }
+  this.showAddRowPicker = false;
+},
+
+toggleAll(evt, list) {
+  const checked = evt.target.checked;
+  const ids = (list || []).map(s => s.id);
+  if (checked) {
+    const set = new Set(this.selectedRows);
+    ids.forEach(id => set.add(id));
+    this.selectedRows = Array.from(set);
+  } else {
+    const removeSet = new Set(ids);
+    this.selectedRows = this.selectedRows.filter(id => !removeSet.has(id));
+  }
 },
 intervalsOverlap(aStart, aEnd, bStart, bEnd) {
   return !(aEnd <= bStart || bEnd <= aStart);
@@ -976,7 +1372,14 @@ markUsedSlotAndRoom(facultyIdentifier, roomIdentifier, slotLabel) {
       const conflictsCourseSection = this.checkCourseSectionConflictForSuggestion(subject, pa);
       return { deptMatch, willExceed, underload, conflictsExistingSlot, conflictsExistingRoom, conflictsCourseSection };
     },
-    
+
+    isLaboratorySubject(subject) {
+      const title = (subject?.subject || subject?.subject_title || '').toString().toLowerCase();
+      const code = (subject?.subject_code || subject?.course_code || '').toString().toLowerCase();
+      const hasLabWord = /\b(lab|laboratory)\b/.test(title) || /\b(lab|laboratory)\b/.test(code);
+      return !!hasLabWord;
+    },
+
 
 checkSlotConflict(facultyIdentifier, slotLabel) {
   if (!facultyIdentifier || !slotLabel) return false;
@@ -992,73 +1395,62 @@ checkSlotConflict(facultyIdentifier, slotLabel) {
   }
   return false;
 },
-   checkRoomConflict(roomId, slotLabel) {
-  if (!roomId || !slotLabel) return false;
-  const norm = this.normalizeSlotLabel(slotLabel);
-  for (const key in this.usedRooms) {
-    const [rid, savedLabel] = key.split("|");
-    if (String(rid) === String(roomId) && this.slotLabelsOverlap(savedLabel, norm)) {
-      return true;
-    }
-  }
-  return false;
-},
+
 
 // Check for course section conflicts (same course_section cannot have overlapping times)
 checkCourseSectionConflict(subject, assignment) {
   if (!subject || !assignment) return false;
-  
+
   const subjectCourseSection = subject.course_section || subject.courseSection || "-";
   const assignmentTimeSlot = assignment.time_slot_label || assignment.time || "";
-  
+
   if (!subjectCourseSection || subjectCourseSection === "-" || !assignmentTimeSlot) return false;
-  
+
   // Check all existing assignments for the same course section
   for (const s of this.pendingSchedules) {
     // Skip the current subject being assigned
     if (s.id === subject.id) continue;
-    
+
     const sCourseSection = s.course_section || s.courseSection || "-";
     const sTimeSlot = s.time || s.time_slot || "";
-    
+
     // Skip if different course section or no time slot
     if (sCourseSection !== subjectCourseSection || !sTimeSlot) continue;
-    
+
     // Check if times overlap on the same day
     if (this.slotLabelsOverlap(sTimeSlot, assignmentTimeSlot)) {
       return true; // Conflict found
     }
   }
-  
+
   return false; // No conflict
 },
 
 // Check if a possible assignment would conflict with course section (for suggestion filtering)
 checkCourseSectionConflictForSuggestion(subject, assignment) {
   if (!subject || !assignment) return false;
-  
+
   const subjectCourseSection = subject.course_section || subject.courseSection || "-";
   const assignmentTimeSlot = assignment.time_slot_label || assignment.time || "";
-  
+
   if (!subjectCourseSection || subjectCourseSection === "-" || !assignmentTimeSlot) return false;
-  
+
   // Only check against already assigned subjects, not other unassigned ones
   for (const s of this.pendingSchedules) {
     // Skip unassigned subjects and the current subject
     if (!s.faculty || s.faculty === 'Unknown' || s.id === subject.id) continue;
-    
+
     const sCourseSection = s.course_section || s.courseSection || "-";
     const sTimeSlot = s.time || s.time_slot || "";
-    
     // Skip if different course section or no time slot
     if (sCourseSection !== subjectCourseSection || !sTimeSlot) continue;
-    
+
     // Check if times overlap on the same day
     if (this.slotLabelsOverlap(sTimeSlot, assignmentTimeSlot)) {
       return true; // Conflict found
     }
   }
-  
+
   return false; // No conflict
 },
     findFacultyById(id) {
@@ -1071,17 +1463,20 @@ checkCourseSectionConflictForSuggestion(subject, assignment) {
       return null;
     },
 // --- FIXED ASSIGNMENT FLOW ---
-assignSuggestion(subjectId, assignment) {
-  if (!this.editMode) return alert("Enable Edit mode to assign subjects.");
+assignSuggestion(subjectId, assignment, silent = false) {
+  if (!this.editMode) {
+    if (!silent) this.showError("Enable Edit mode to assign subjects.");
+    return false;
+  }
 
   const target = this.pendingSchedules.find(s => s.id === subjectId);
-  if (!target || (target.faculty && target.faculty !== 'Unknown')) return;
+  if (!target || (target.faculty && target.faculty !== 'Unknown')) return false;
 
   // Extract faculty_id from possible assignment, with fallback to id
   const facultyId = assignment.faculty_id || assignment.id || null;
   if (!facultyId) {
-    alert("❌ Error: No faculty ID found in assignment data. Cannot assign this subject.");
-    return;
+    if (!silent) this.showError("❌ Error: No faculty ID found in assignment data. Cannot assign this subject.");
+    return false;
   }
 
   const conflict = this.checkAssignmentConflict({
@@ -1092,14 +1487,14 @@ assignSuggestion(subjectId, assignment) {
   });
 
   if (conflict) {
-    alert("❌ Conflict detected: This faculty or room already has an overlapping schedule!");
-    return;
+    if (!silent) this.showError("❌ Conflict detected: This faculty or room already has an overlapping schedule!");
+    return false;
   }
 
   // Check for course section conflicts (same course_section cannot have overlapping times)
   if (this.checkCourseSectionConflict(target, assignment)) {
-    alert("❌ Conflict detected: This assignment conflicts with another subject in the same course section!");
-    return;
+    if (!silent) this.showError("❌ Conflict detected: This assignment conflicts with another subject in the same course section!");
+    return false;
   }
 
   this.actionHistory.push({
@@ -1121,6 +1516,8 @@ assignSuggestion(subjectId, assignment) {
 
   this.markUsedSlotAndRoom(facultyId, assignment.room_id, assignment.time_slot_label || assignment.time);
   this.refreshAISuggestions();
+
+  return true;
 },
 
 // --- FIXED RE-EVALUATION LOGIC ---
@@ -1138,7 +1535,7 @@ refreshAISuggestions() {
       const slot = opt.time_slot_label || opt.time;
 
       // ✅ Filter out any option that overlaps with existing assignments (AI or manual)
-      const conflict = this.pendingSchedules.some(ps => {
+       const conflict = this.pendingSchedules.some(ps => {
         if (ps.id === s.id) return false;
         if (!ps.faculty || !ps.time || !ps.classroom) return false;
 
@@ -1146,80 +1543,56 @@ refreshAISuggestions() {
         const optSlot = this.normalizeSlotLabel(slot);
         const sameDayOverlap = this.slotLabelsOverlap(psSlot, optSlot);
 
-        return (
-          sameDayOverlap &&
-          (
-            ps.faculty_id === opt.faculty_id ||           // same faculty
-            ps.faculty === opt.faculty_name ||            // or same faculty name
-            ps.classroom === opt.room_name ||             // or same room
-            ps.room_id === opt.room_id
-          )
-        );
+        // ✅ FIX: More robust check for conflicts
+        const facultyConflict = (opt.faculty_id && ps.faculty_id && ps.faculty_id === opt.faculty_id) || (opt.faculty_name && ps.faculty && ps.faculty === opt.faculty_name);
+        const roomConflict = (opt.room_id && ps.room_id && ps.room_id === opt.room_id) || (opt.room_name && ps.classroom && ps.classroom === opt.room_name);
+
+        return sameDayOverlap && (facultyConflict || roomConflict);
       });
 
       if (conflict) return; // ❌ skip conflicting assignment
 
-      // continue normal scoring
-      const fid = opt.faculty_id || `name-${opt.faculty_name}`;
-      if (!byFaculty[fid]) byFaculty[fid] = [];
-
-      const willExceed = (opt.faculty_current_load + (s.units || 0)) > (opt.faculty_max_load || 20);
-      const subjDept = (s.subject_code || "").substring(0, 2).toUpperCase();
-      const deptMatch = subjDept === (opt.faculty_department || "").substring(0, 2).toUpperCase();
-
-      byFaculty[fid].push({ opt, willExceed, deptMatch, score: opt.score || 0 });
+      const facultyId = opt.faculty_id || opt.id;
+      if (facultyId) {
+          if (!byFaculty[facultyId]) {
+              byFaculty[facultyId] = [];
+          }
+          if (byFaculty[facultyId].length < facultyLimit) {
+              byFaculty[facultyId].push(opt);
+          }
+      }
     });
 
-    const selectedOpts = [];
-    for (const fid in byFaculty) {
-      const arr = byFaculty[fid];
-      arr.sort((a, b) => {
-        if (b.deptMatch !== a.deptMatch) return b.deptMatch - a.deptMatch;
-        if (a.willExceed !== b.willExceed) return a.willExceed - b.willExceed;
-        return (b.score || 0) - (a.score || 0);
-      });
-
-      const localUsed = [];
-      let count = 0;
-      for (const entry of arr) {
-        if (count >= facultyLimit) break;
-        const candidateSlot = entry.opt.time_slot_label || entry.opt.time;
-        if (localUsed.some(used => this.slotLabelsOverlap(used, candidateSlot))) continue;
-        localUsed.push(candidateSlot);
-        selectedOpts.push(entry.opt);
-        count++;
-      }
-    }
-
-    selectedOpts.sort((a, b) => (b.score || 0) - (a.score || 0));
-    s.possible_assignments = selectedOpts;
+    s.possible_assignments = Object.values(byFaculty).flat();
   }
-
-  this.$forceUpdate();
 },
 
     getFacultyTotal(facultySchedules) {
       return facultySchedules.reduce((sum,s)=>sum+(Number(s.units||0)),0);
     },
     formatDate(dateStr){ const d=new Date(dateStr); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); },
-    exitSchedule(){ 
-      this.pendingSchedules=[]; 
-      this.selectedBatch=null; 
+
+    closeModal(){
+      this.showModal=false;
+      this.pendingSchedules=[];
+      this.selectedRows=[];
+      this.editMode=false;
+      this.deleteMode=false;
       this.academicYear = "Unknown Year";
       this.semester = "Unknown Semester";
     },
-    closeModal(){ 
-      this.showModal=false; 
-      this.pendingSchedules=[]; 
-      this.selectedRows=[]; 
-      this.editMode=false; 
-      this.deleteMode=false; 
-      this.academicYear = "Unknown Year";
-      this.semester = "Unknown Semester";
+    toggleEditMode(){
+      this.editMode = !this.editMode;
+      this.editableCell = null;
+      if (!this.editMode) {
+        this.deleteMode = false;
+        this.selectedRows = [];
+      } else {
+        this.showSuccess("Edit mode enabled. You can drag or double-click to edit cells.");
+      }
     },
-    toggleEditMode(){ this.editMode=!this.editMode; this.editableCell=null; if(this.editMode) alert("✅ You can drag or double-click to edit cells."); },
-    saveEdit(faculty,row,col){ const key=col.toLowerCase().replace(" ","_"); const facultyRows=this.pendingSchedules.filter(s=>s.faculty===faculty); const editedRow=facultyRows[row]; if(!editedRow) return; editedRow[key]=this.editableValue; this.editableCell=null; this.editableValue=""; this.pendingSchedules=[...this.pendingSchedules]; },
-    async loadPendingSchedules(){ this.show(); try{ const res=await fetch("/api/pending-schedules"); const data=await res.json(); this.batchList=data.pending||data.batches||[]; } catch(err){ console.error(err); alert("Failed to load pending schedules."); } finally{ this.hide(); } },
+
+    async loadPendingSchedules(){ this.show(); try{ const res=await fetch("/api/pending-schedules"); const data=await res.json(); this.batchList=data.pending||data.batches||[]; } catch(err){ console.error(err); this.showError("Failed to load pending schedules."); } finally{ this.hide(); } },
 async openBatch(batchId) {
   this.selectedBatch = batchId;
   this.show();
@@ -1243,21 +1616,21 @@ async openBatch(batchId) {
 
     const res = await fetch(`/api/pending-schedules/${batchId}`);
     const data = await res.json();
-    
+
     // --- Set batch-level academicYear and semester ---
     // Try multiple possible sources for academicYear and semester
-    this.academicYear = data.academicYear || 
-                       data.batch?.academicYear || 
+    this.academicYear = data.academicYear ||
+                       data.batch?.academicYear ||
                        data.batch?.academic_year ||
                        data.academic_year ||
                        "Unknown Year";
-    
-    this.semester = data.semester || 
-                   data.batch?.semester || 
+
+    this.semester = data.semester ||
+                   data.batch?.semester ||
                    data.batch?.semester_id ||
                    data.semester_id ||
                    "Unknown Semester";
-    
+
     // Debug: Log the loaded values
     console.log('Loaded from API - academicYear:', this.academicYear);
     console.log('Loaded from API - semester:', this.semester);
@@ -1415,32 +1788,39 @@ async openBatch(batchId) {
 
     this.showModal = true;
     this.refreshAISuggestions();
+    this.detectConflicts();
     this.$forceUpdate();
 
   } catch (err) {
     console.error(err);
-    alert("Failed to load batch details.");
+    this.showError("Failed to load batch details.");
   } finally {
     this.hide();
   }
 },
 
 async finalizeSchedule() {
-  if (!this.selectedBatch) return alert("No batch selected to finalize.");
+  if (!this.selectedBatch) return this.showError("No batch selected to finalize.");
 
   // Check for unassigned subjects
   const unassignedSubjects = this.pendingSchedules.filter(
     s => !s.faculty || s.faculty === "Unknown"
   );
   if (unassignedSubjects.length > 0) {
-    return alert(`❌ Cannot finalize: ${unassignedSubjects.length} subjects are still unassigned.`);
+    return this.showError(`❌ Cannot finalize: ${unassignedSubjects.length} subjects are still unassigned.`);
+  }
+
+  // Check for blank required cells (time and classroom)
+  const blanks = this.pendingSchedules.filter(s => !s.time || !s.classroom);
+  if (blanks.length > 0) {
+    return this.showError(`❌ Cannot finalize: ${blanks.length} row(s) have blank time/classroom. Please fill all cells.`);
   }
 
   // Check for conflicts
   this.detectConflicts();
   const conflictCount = this.pendingSchedules.filter(s => s.conflict).length;
   if (conflictCount > 0) {
-    return alert(`❌ Cannot finalize: ${conflictCount} schedule conflicts detected.`);
+    return this.showError(`❌ Cannot finalize: ${conflictCount} schedule conflicts detected.`);
   }
 
   // Confirm before finalizing
@@ -1482,7 +1862,7 @@ async finalizeSchedule() {
     const missing = schedulePayload.filter(r => !r.faculty_id);
     if (missing.length) {
       const missingSubjects = missing.map(r => r.subject || 'Unknown Subject').join(', ');
-      alert(`Cannot finalize: ${missing.length} row(s) are missing faculty IDs.\n\nMissing faculty IDs for subjects: ${missingSubjects}\n\nPlease assign a faculty for each subject before finalizing.`);
+      this.showError(`Cannot finalize: ${missing.length} row(s) are missing faculty IDs.\n\nMissing faculty IDs for subjects: ${missingSubjects}\n\nPlease assign a faculty for each subject before finalizing.`);
       this.hide();
       return;
     }
@@ -1490,9 +1870,9 @@ async finalizeSchedule() {
     // Validate academicYear and semester presence
     const missingAcademicYear = schedulePayload.filter(r => !r.academicYear || r.academicYear === 'Unknown Year');
     const missingSemester = schedulePayload.filter(r => !r.semester || r.semester === 'Unknown Semester');
-    
+
     if (missingAcademicYear.length > 0 || missingSemester.length > 0) {
-      alert(`Cannot finalize: Missing academic year or semester information.\n\nMissing academic year: ${missingAcademicYear.length} rows\nMissing semester: ${missingSemester.length} rows\n\nPlease ensure all schedules have proper academic year and semester values.`);
+      this.showError(`Cannot finalize: Missing academic year or semester information.\n\nMissing academic year: ${missingAcademicYear.length} rows\nMissing semester: ${missingSemester.length} rows\n\nPlease ensure all schedules have proper academic year and semester values.`);
       this.hide();
       return;
     }
@@ -1511,18 +1891,18 @@ async finalizeSchedule() {
     const data = await res.json();
 
     if (data.success) {
-      alert("✅ Schedule finalized successfully!");
+      this.showSuccess("✅ Schedule finalized successfully!");
       this.pendingSchedules = [];
       this.loadPendingSchedules();
       this.showModal = false;
       this.editMode = false;
       this.selectedBatch = null;
     } else {
-      alert("❌ Failed to finalize schedule: " + (data.message || "Unknown error"));
+      this.showError("❌ Failed to finalize schedule: " + (data.message || "Unknown error"));
     }
   } catch (err) {
     console.error(err);
-    alert("Network error while finalizing schedule.");
+    this.showError("Network error while finalizing schedule.");
   } finally {
     this.hide();
   }
@@ -1530,18 +1910,56 @@ async finalizeSchedule() {
 ,
 
 
-    async saveChanges(){ if(!this.selectedBatch) return alert("No batch selected."); if(!this.pendingSchedules.length) return alert("No schedules to save."); this.show(); try{ const schedulesToSave = this.pendingSchedules.map(s => ({
-    id: s.id,
-    subject_code: s.subject_code,
-    subject: s.subject,
-    time: s.time,
-    classroom: s.classroom,
-    course_section: s.course_section,
-    units: Number(s.units),
-    faculty: s.faculty,
-    payload: s.payload || {} // ensure it's an object
-}));
- const res=await fetch(`/api/pending-schedules/${this.selectedBatch}/update`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({schedules:schedulesToSave})}); const data=await res.json(); if(data.success){ alert("✅ Changes saved successfully!"); this.loadPendingSchedules(); this.showModal=false; this.editMode=false; this.editableCell=null; this.editableValue=""; }else alert("❌ Failed to save changes: "+data.message); }catch(err){console.error(err); alert("Error saving schedule changes.");}finally{this.hide();}},
+    async saveChanges(){
+      if(!this.selectedBatch) return this.showError("No batch selected.");
+      if(!this.pendingSchedules.length) return this.showError("No schedules to save.");
+      this.show();
+      try{
+        const schedulesToSave = this.pendingSchedules.map(s => {
+          const isNew = !!(s.isNew || String(s.id || '').startsWith('tmp_') || isNaN(Number(s.id)));
+          const mapped = {
+            subject: s.subject,
+            time: s.time,
+            classroom: s.classroom,
+            course_code: s.course_code || s.subject_code || null,
+            course_section: s.course_section,
+            units: Number(s.units || 0),
+            faculty: s.faculty,
+            faculty_id: s.assigned_faculty_id || s.faculty_id || (this.professorsByName?.[(s.faculty || '').toLowerCase()]?.id ?? null),
+            academicYear: this.academicYear,
+            semester: this.semester,
+            payload: s.payload || {}
+          };
+          if (!isNew) mapped.id = s.id;
+          return mapped;
+        });
+        const res = await fetch(`/api/pending-schedules/${this.selectedBatch}/update`, {
+          method: "PUT",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ schedules: schedulesToSave, deleted_ids: this.deletedIds })
+        });
+        const data = await res.json();
+        if(data.success){
+          this.showSuccess("✅ Changes saved successfully!");
+          await this.loadPendingSchedules();
+          this.deletedIds = [];
+          this.actionHistory = [];
+          this.selectedRows = [];
+          this.deleteMode = false;
+          this.showModal = false;
+          this.editMode = false;
+          this.editableCell = null;
+          this.editableValue = "";
+        } else {
+          this.showError("❌ Failed to save changes: " + (data.message || "Unknown error"));
+        }
+      } catch(err){
+        console.error(err);
+        this.showError("Error saving schedule changes.");
+      } finally {
+        this.hide();
+      }
+    },
   }
 };
 </script>
@@ -1609,20 +2027,27 @@ async finalizeSchedule() {
 }
 .header-buttons {
   display: flex;
-  gap: 10px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
+.action-buttons { display:flex; gap:6px; align-items:center; flex-wrap: wrap; }
+.add-row-group { display:flex; gap:6px; align-items:center; flex-wrap: wrap; }
+.add-row-popover { display: inline-block; }
+
 .edit-btn,
 .finalize-btn,
 .delete-btn,
 .close-btn,
 .view-btn,
+.save-btn,
+.add-row-btn,
 .exit-btn {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   color: white;
-  font-size: 14px;
+  font-size: 12px;
   transition: 0.2s;
 }
 .edit-btn {
@@ -1637,9 +2062,18 @@ async finalizeSchedule() {
 .view-btn {
   background: #8e44ad;
 }
-.exit-btn {
-  background: #7f8c8d;
-}
+.add-row-dropdown { display: inline-block; }
+.add-row-select { min-width: 240px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #0f172a; }
+.add-row-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+.exit-btn { background: #7f8c8d; }
+.add-row-btn { background: #1abc9c; }
+
+.add-row-picker { margin-top: 8px; padding: 8px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; }
+.picker-title { font-weight: 600; margin-bottom: 6px; color: #334155; }
+.picker-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 140px; overflow-y: auto; }
+.faculty-chip { background: #eef2ff; color: #1e293b; border: 1px solid #c7d2fe; border-radius: 999px; padding: 6px 10px; cursor: pointer; }
+.faculty-chip:hover { filter: brightness(0.97); }
+
 .close-btn {
   background: #e74c3c;
   margin-top: 20px;
@@ -1655,6 +2089,11 @@ async finalizeSchedule() {
 .save-btn:hover {
   background: #d4ac0d;
 }
+
+/* Toast messages */
+.toast { margin: 10px 0 10px auto; padding: 10px 12px; border-radius: 8px; font-weight: 500; width: max-content; }
+.toast.success { background: #eafaf1; color: #1e824c; }
+.toast.error { background: #fdecea; color: #b71c1c; }
 
 .faculty-section {
   margin-bottom: 30px;
@@ -1821,6 +2260,7 @@ async finalizeSchedule() {
   transition: background-color 0.3s ease;
 }
 
+
 .conflict-note {
   color: red;
   font-weight: bold;
@@ -1916,4 +2356,3 @@ async finalizeSchedule() {
 }
 
 </style>
-

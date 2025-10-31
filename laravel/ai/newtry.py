@@ -9,7 +9,79 @@ from collections import defaultdict
 import heapq
 import itertools
 
-def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60, search_workers=8):
+def parse_slot_label(slot_label):
+    s = slot_label.replace("–", "-").strip()
+    m = re.match(r'([A-Za-z]+)\s+(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?', s)
+    if not m:
+        raise ValueError(f"Can't parse slot: {slot_label!r}")
+    day = m.group(1)
+    sh = int(m.group(2)); sm = int(m.group(3) or 0)
+    eh = int(m.group(4)); em = int(m.group(5) or 0)
+    return {"label": slot_label, "day": day, "start": sh*60 + sm, "end": eh*60 + em}
+
+def parse_unavailable_range(unavail_label):
+    if not isinstance(unavail_label, str):
+        return None
+    s = unavail_label.replace("–", "-").strip()
+    m = re.match(r'([A-Za-z]+)\s+(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?', s)
+    if not m:
+        return None
+    day = m.group(1)
+    sh = int(m.group(2)); sm = int(m.group(3) or 0)
+    eh = int(m.group(4)); em = int(m.group(5) or 0)
+    return {"day": day, "start": sh*60+sm, "end": eh*60+em}
+
+def intervals_overlap(a_start, a_end, b_start, b_end):
+    return not (a_end <= b_start or b_end <= a_start)
+
+def is_time_conflict(parsed_unavail_ranges, slot_label, buffer_minutes=60, slot_struct=None):
+    if not parsed_unavail_ranges:
+        return False
+    
+    current_slot_struct = slot_struct
+    if current_slot_struct is None:
+        try:
+            current_slot_struct = parse_slot_label(slot_label)
+        except Exception:
+            return True
+    
+    for rng in parsed_unavail_ranges:
+        buf_start = max(0, rng["start"] - buffer_minutes)
+        buf_end = min(24*60, rng["end"] + buffer_minutes)
+        if current_slot_struct["day"] != rng["day"]:
+            continue
+        if intervals_overlap(current_slot_struct["start"], current_slot_struct["end"], buf_start, buf_end):
+            return True
+    return False
+
+import mysql.connector
+from ortools.sat.python import cp_model
+import re
+import json
+import sys
+import argparse
+from collections import defaultdict
+import heapq
+import itertools
+
+def infer_subject_department(subj, department_prefix_map, department_info):
+    subj_code = (subj.get('subject_code') or '').upper()
+    subj_title = (subj.get('subject_title') or '').upper()
+
+    # 1. Prefix-based inference (highest priority)
+    for prefix, dept_name in department_prefix_map.items():
+        if subj_code.startswith(prefix):
+            return dept_name, 'prefix'
+
+    # 2. Keyword-based inference
+    for lower_dept_name, info in department_info.items():
+        for keyword in info['keywords']:
+            if re.search(rf"\b{re.escape(keyword)}\b", subj_title):
+                return info['name'], 'keyword'
+    
+    return None, None
+
+def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=120, search_workers=4):
     import sys
     import argparse
 
@@ -35,6 +107,8 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         r['capacity'] = r.get('capacity') or r.get('max_load') or r.get('size') or None
         r['status'] = (r.get('status') or "").lower()
     rooms = [r for r in rooms_all if (r.get("status") or "") in ("", "available", "active", None)]
+    room_by_id = {r['id']: r for r in rooms}
+    
     
     cursor.execute("SELECT * FROM professors")
     faculty_all = cursor.fetchall() or []
@@ -44,6 +118,10 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=60
         f['is_full_time'] = (f.get('type') or "").lower() == "full-time"
 
     faculty = [f for f in faculty_all if (f.get("status") in ("", "active", "available", None))]
+
+    # Create a lookup for faculty by ID for faster access
+    faculty_by_id = {f['id']: f for f in faculty}
+
 
     cursor.execute("SELECT * FROM courses")
     courses = cursor.fetchall() or []
@@ -196,6 +274,8 @@ s.lab_units,
 
     # All subjects from the query already have valid course_id due to INNER JOIN
     curriculum_subjects = subjects
+    subject_by_id = {s['id']: s for s in curriculum_subjects}
+
 
     print(f"[DEBUG] Loaded {len(curriculum_subjects)} valid subjects for semester {semester_id} and matching course year.", file=sys.stderr)
     print(f"[DEBUG] semester_id resolved: {semester_id}", file=sys.stderr)
@@ -224,50 +304,6 @@ s.lab_units,
 
     # Combined list for overlap calculations and indexing
     time_slots = sorted(list(set(time_slots_3_hours + time_slots_2_hours)))
-
-    # -----------------------------
-# PARSERS & HELPERS
-    # -----------------------------
-    def parse_slot_label(slot_label):
-        s = slot_label.replace("–", "-").strip()
-        m = re.match(r'([A-Za-z]+)\s+(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?', s)
-        if not m:
-            raise ValueError(f"Can't parse slot: {slot_label!r}")
-        day = m.group(1)
-        sh = int(m.group(2)); sm = int(m.group(3) or 0)
-        eh = int(m.group(4)); em = int(m.group(5) or 0)
-        return {"label": slot_label, "day": day, "start": sh*60 + sm, "end": eh*60 + em}
-
-    def parse_unavailable_range(unavail_label):
-        if not isinstance(unavail_label, str):
-            return None
-        s = unavail_label.replace("–", "-").strip()
-        m = re.match(r'([A-Za-z]+)\s+(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?', s)
-        if not m:
-            return None
-        day = m.group(1)
-        sh = int(m.group(2)); sm = int(m.group(3) or 0)
-        eh = int(m.group(4)); em = int(m.group(5) or 0)
-        return {"day": day, "start": sh*60+sm, "end": eh*60+em}
-
-    def intervals_overlap(a_start, a_end, b_start, b_end):
-        return not (a_end <= b_start or b_end <= a_start)
-
-    def is_time_conflict(parsed_unavail_ranges, slot_label, buffer_minutes=60):
-        if not parsed_unavail_ranges:
-            return False
-        try:
-            slot_struct = parse_slot_label(slot_label)
-        except Exception:
-            return True
-        for rng in parsed_unavail_ranges:
-            buf_start = max(0, rng["start"] - buffer_minutes)
-            buf_end = min(24*60, rng["end"] + buffer_minutes)
-            if slot_struct["day"] != rng["day"]:
-                continue
-            if intervals_overlap(slot_struct["start"], slot_struct["end"], buf_start, buf_end):
-                return True
-        return False
 
     # -----------------------------
     # PREPARE SLOT STRUCTS & OVERLAPS
@@ -320,66 +356,60 @@ s.lab_units,
     # -----------------------------
     # Hybrid subject department inference
     # -----------------------------
-    department_prefix_map = {
-        "ITP": "Information Technology",
-        "IT": "Information Technology",
-        "ITC": "Information Technology",
-        "ACC": "Accounting",
-        "ACE": "Accounting",
-        "MKT": "Marketing",
-        "ENT": "Entrepreneurship",
-        "EN": "Entrepreneurship",
-        "ENE": "Entrepreneurship",
-        "ENS": "Entrepreneurship",
-        "ENC": "Entrepreneurship",
-        "PE": "Physical Education",
-        "PED": "Physical Education",
-        "NSTP": "NSTP",
-        "GE": "General Education",
-        "GEE": "General Education",
-        "MATH": "General Education",
-    }
-
-    department_keywords_map = {
-        "Information Technology": ["SOFTWARE", "COMPUTER", "PROGRAMMING", "IT", "ALGORITHMS"],
-        "Accounting": ["ACCOUNTING", "FINANCE", "AUDITING", "BOOKKEEPING"],
-        "Marketing": ["MARKETING", "ADVERTISING", "SALES"],
-        "Entrepreneurship": ["ENTREPRENEUR", "BUSINESS PLAN", "STARTUP"],
-        "Physical Education": ["PE", "PHYSICAL EDUCATION", "SPORT", "HEALTH"],
-        "NSTP": ["NSTP"],
-        "General Education": ["MATH", "MATHEMATICS", "HUMANITIES", "PHILOSOPHY", "SELF", "WORLD", "ETHICS", "SCIENCE", "ARTS", "SOCIAL STUDIES", "HISTORY"],
-    }
-
-
-    def infer_subject_department(subject_code, subject_title):
-        subject_code = (subject_code or "").upper()
-        subject_title = (subject_title or "").upper()
-
-        # Score departments
-        scores = defaultdict(int)
-
-        # 1️⃣ Prefix match
-        for prefix, dept in department_prefix_map.items():
-            if subject_code.startswith(prefix):
-                scores[dept] += 2  # prefix match = stronger signal
-
-        # 2️⃣ Keyword matches (can match multiple keywords)
-        for dept, keywords in department_keywords_map.items():
-            for kw in keywords:
-                if re.search(rf'\b{re.escape(kw)}\b', subject_title):
-                    scores[dept] += 1
-
-        if scores:
-            # Pick department with highest score
-            best_dept = max(scores, key=lambda k: scores[k])
-            return best_dept
-        else:
-            return "General Education"  # default fallback
-    # Step 1: infer departments for all subjects
-    for s in subjects:
+    department_info = {}
+    department_prefix_map = {}
+    try:
+        cursor.execute("SELECT name, keywords, prefixes FROM departments")
+        departments_data = cursor.fetchall() or []
         
-        s['dept'] = infer_subject_department(s.get('subject_code'), s.get('subject_title'))
-        s['assigned'] = False  # track assignment
+        for d in departments_data:
+            dept_name = d.get('name')
+            if not dept_name:
+                continue
+            
+            lower_dept_name = dept_name.lower()
+            department_info[lower_dept_name] = {
+                'name': dept_name,
+                'keywords': [kw.strip().upper() for kw in (d.get('keywords') or '').split(',') if kw.strip()],
+                'prefixes': [p.strip().upper() for p in (d.get('prefixes') or '').split(',') if p.strip()]
+            }
+        
+        for lower_dept_name, info in department_info.items():
+            for prefix in info['prefixes']:
+                department_prefix_map[prefix] = info['name']
+
+        if not department_info:
+            print("[WARNING] No department data found in database. Department-based scoring will be limited.", file=sys.stderr)
+        else:
+            print(f"[DEBUG] Loaded {len(department_info)} departments from database.", file=sys.stderr)
+
+    except Exception as e:
+        print(f"[WARNING] Could not load departments from DB, using hardcoded fallbacks. Reason: {e}", file=sys.stderr)
+        department_info = {
+            "information technology": {'name': 'Information Technology', 'keywords': ["SOFTWARE", "COMPUTER", "PROGRAMMING", "IT", "ALGORITHMS"], 'prefixes': ['ITP', 'IT', 'ITC']},
+            "accounting": {'name': 'Accounting', 'keywords': ["ACCOUNTING", "FINANCE", "AUDITING", "BOOKKEEPING"], 'prefixes': ['ACC', 'ACE']},
+            "marketing": {'name': 'Marketing', 'keywords': ["MARKETING", "ADVERTISING", "SALES"], 'prefixes': ['MKT']},
+            "entrepreneurship": {'name': 'Entrepreneurship', 'keywords': ["ENTREPRENEUR", "BUSINESS PLAN", "STARTUP"], 'prefixes': ['ENT', 'EN', 'ENE', 'ENS', 'ENC']},
+            "physical education": {'name': 'Physical Education', 'keywords': ["PE", "PHYSICAL EDUCATION", "SPORT", "HEALTH"], 'prefixes': ['PE', 'PED']},
+            "nstp": {'name': 'NSTP', 'keywords': ["NSTP"], 'prefixes': ['NSTP']},
+            "general education": {'name': 'General Education', 'keywords': ["MATH", "MATHEMATICS", "HUMANITIES", "PHILOSOPHY", "SELF", "WORLD", "ETHICS", "SCIENCE", "ARTS", "SOCIAL STUDIES", "HISTORY"], 'prefixes': ['GE', 'GEE', 'MATH']},
+        }
+        department_prefix_map = {}
+        for lower_dept_name, info in department_info.items():
+            for prefix in info['prefixes']:
+                department_prefix_map[prefix] = info['name']
+
+
+    # Step 1: infer departments for all subjects
+    for subj in curriculum_subjects:
+        inferred_dept, reason = infer_subject_department(subj, department_prefix_map, department_info)
+        if inferred_dept:
+            subj['dept'] = inferred_dept
+            # print(f"[DEBUG] Inferred department for '{subj.get('subject_code')}': {inferred_dept} (reason: {reason})", file=sys.stderr)
+        else:
+            subj['dept'] = 'Unassigned'
+            # print(f"[WARNING] Could not infer department for subject: {subj.get('subject_code')}", file=sys.stderr)
+        subj['assigned'] = False  # track assignment
     
     # Separate faculty by department AND type
     faculty_by_dept_and_type = defaultdict(lambda: defaultdict(list))
@@ -426,7 +456,7 @@ s.lab_units,
             if not faculty_dept or faculty_dept != subj_dept:
                 continue
             prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
-            keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+            keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_info.get((fobj.get('department') or '').lower(), {}).get('keywords', []))
             if prefix_match or keyword_match:
                 perfect_match_pairs[sid].append(fid)
 
@@ -515,7 +545,7 @@ s.lab_units,
                 if faculty_dept == subj_dept:
                     continue
                 # Allow cross dept only if subject title keywords overlap faculty dept keywords
-                keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
+                keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_info.get((fobj.get('department') or '').lower(), {}).get('keywords', []))
                 if not keyword_match:
                     continue
 
@@ -541,7 +571,7 @@ s.lab_units,
 
         # --- 3d. Feasibility checks ---
         if not combos_by_subject[sid]:
-            if not faculty_candidates:
+            if not combos_by_subject.get(sid):
                 subject_feasible_reasons[sid].append("no_faculty_for_dept")
             else:
                 rooms_ok = [r for r in rooms if (r.get('capacity') or r.get('max_load') or 0) >= (students or 1)]
@@ -605,7 +635,7 @@ s.lab_units,
                         else:
                             # Check for keyword match
                             keyword_match = False
-                            for kw in department_keywords_map.get(faculty_dept, []):
+                            for kw in department_info.get(faculty_dept.lower(), {}).get('keywords', []):
                                 if re.search(rf'\b{re.escape(kw)}\b', subj_title):
                                     keyword_match = True
                                     break
@@ -616,7 +646,7 @@ s.lab_units,
                                 score += 100  # Department match only
                     else:
                         # Cross-department keyword match
-                        for kw in department_keywords_map.get(faculty_dept, []):
+                        for kw in department_info.get(faculty_dept.lower(), {}).get('keywords', []):
                             if re.search(rf'\b{re.escape(kw)}\b', subj_title):
                                 score += 10
                     
@@ -721,7 +751,7 @@ s.lab_units,
         for i in range(num_slots):
             vars_overlapping = []
             for (s, ff, rr, t), v in x.items():
-                subj = next((sub for sub in curriculum_subjects if sub.get('id') == s), None)
+                subj = subject_by_id.get(s)
                 if not subj or subj.get('course_id') != cid:
                     continue
                 ti = slot_index_by_label.get(t)
@@ -744,9 +774,9 @@ s.lab_units,
         
         for (sid, ff, rr, t), var in x.items():
             if ff == fid:
-                subj = next((s for s in curriculum_subjects if s['id'] == sid), None)
+                subj = subject_by_id.get(sid)
                 if subj:
-                    units = subj.get('units', 3)  # Default to 3 units if not specified
+                    units = int(subj.get('units', 3))  # Default to 3 units if not specified
                     max_possible_units += units
                     assigned_vars_with_units.append((var, units))
         
@@ -778,26 +808,41 @@ s.lab_units,
 
     # 2. Perfect matching (highest priority) — enforce: dept + prefix and/or subject name keyword
     for (sid, fid, rid, t), var in x.items():
-        subj = next((s for s in curriculum_subjects if s['id'] == sid), None)
-        fobj = next((f for f in faculty if f['id'] == fid), None)
+        subj = subject_by_id.get(sid)
+        fobj = faculty_by_id.get(fid)
         if subj and fobj:
             subj_dept = (subj.get('dept') or '').lower()
-            subj_code = (subj.get('subject_code') or '').upper()
-            subj_title = (subj.get('subject_title') or '').upper()
-    faculty_dept = (fobj.get('department') or fobj.get('dept') or fobj.get('year') or '').lower()        
-    if subj_dept and faculty_dept and subj_dept == faculty_dept:
-        prefix_match = any(subj_code.startswith(p) for p in department_prefix_map.keys())
-        keyword_match = any(re.search(rf"\\b{re.escape(kw)}\\b", subj_title) for kw in department_keywords_map.get(fobj.get('department'), []))
-        if prefix_match:
-            objective_terms.append(var * 30000)
-        elif keyword_match:
-            objective_terms.append(var * 22000)
-        else:
-            objective_terms.append(var * 8000)
+            faculty_dept = (fobj.get('department') or '').lower()
+            
+            if subj_dept and faculty_dept and subj_dept == faculty_dept:
+                # Check for prefix match
+                subj_code = (subj.get('subject_code') or '').upper()
+                is_prefix_match = False
+                if subj_dept in department_info:
+                    for prefix in department_info[subj_dept].get('prefixes', []):
+                        if subj_code.startswith(prefix):
+                            is_prefix_match = True
+                            break
+                
+                # Check for keyword match
+                subj_title = (subj.get('subject_title') or '').upper()
+                is_keyword_match = False
+                if subj_dept in department_info:
+                    for keyword in department_info[subj_dept].get('keywords', []):
+                        if re.search(rf"\b{re.escape(keyword)}\b", subj_title):
+                            is_keyword_match = True
+                            break
+
+                if is_prefix_match:
+                    objective_terms.append(var * 30000)
+                elif is_keyword_match:
+                    objective_terms.append(var * 22000)
+                else:
+                    objective_terms.append(var * 8000)
 
     # 3. Full-time faculty preference (medium priority)
     for (sid, fid, rid, t), var in x.items():
-        fobj = next((f for f in faculty if f['id'] == fid), None)
+        fobj = faculty_by_id.get(fid)
         if fobj and fobj.get('is_full_time', True):
             objective_terms.append(var * 2000)  # Moderate bonus for full-time
 
@@ -811,8 +856,8 @@ s.lab_units,
 
     # Add explicit penalty for cross-department assignments to reinforce preference
     for (sid, fid, rid, t), var in x.items():
-        subj = next((s for s in curriculum_subjects if s['id'] == sid), None)
-        fobj = next((f for f in faculty if f['id'] == fid), None)
+        subj = subject_by_id.get(sid)
+        fobj = faculty_by_id.get(fid)
         if subj and fobj:
             subj_dept = subj.get('dept')
             faculty_dept = fobj.get('department')
@@ -836,21 +881,10 @@ s.lab_units,
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         for (sid, fid, rid, t), v in x.items():
             if solver.BooleanValue(v):
-                subj_obj = next((s for s in subjects if s.get('id') == sid), None)
+                subj_obj = subject_by_id.get(sid)
                 course_obj = course_by_id.get(subj_obj.get('course_id') if subj_obj else None)
-                faculty_obj = next((f for f in faculty if f.get('id') == fid), None)
-                room_obj = next((r for r in rooms if r.get('id') == rid), None)
-                
-                # Calculate actual faculty load in units
-                faculty_load_units = 0
-                for (s2, f2, r2, t2), v2 in x.items():
-                    if f2 == fid and solver.BooleanValue(v2):
-                        subj2 = next((s for s in curriculum_subjects if s['id'] == s2), None)
-                        if subj2:
-                            faculty_load_units += subj2.get('units', 3)
-                
-                max_load_units = faculty_obj.get('max_load', 20 if faculty_obj.get('is_full_time') else 6)
-                is_overloaded = faculty_load_units > max_load_units
+                faculty_obj = faculty_by_id.get(fid)
+                room_obj = room_by_id.get(rid)
                 
                 assigned.append({
                     "subject_id": sid,
@@ -866,11 +900,22 @@ s.lab_units,
                     "room_name": room_obj.get('name') if room_obj else None,
                     "time_slot": t,
                     "units": subj_obj.get('units') if subj_obj else 0,
-                    "faculty_load_units": faculty_load_units,
-                    "max_load_units": max_load_units,
-                    "is_overloaded": is_overloaded
                 })
                 assigned_subject_ids.add(sid)
+
+        # Calculate faculty loads and add to assignments
+        faculty_loads = defaultdict(int)
+        for a in assigned:
+            faculty_loads[a['faculty_id']] += a.get('units', 0)
+
+        for a in assigned:
+            fid = a['faculty_id']
+            fobj = faculty_by_id.get(fid)
+            max_load = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
+            current_load = faculty_loads[fid]
+            a['faculty_load_units'] = current_load
+            a['max_load_units'] = max_load
+            a['is_overloaded'] = current_load > max_load
     
     # Identify unassigned subjects
     for subj in curriculum_subjects:
@@ -921,7 +966,7 @@ s.lab_units,
 
         
     for fid, units in faculty_assignment_units.items():
-        fobj = next((f for f in faculty if f.get('id') == fid), None)
+        fobj = faculty_by_id.get(fid)
         if fobj:
             max_load_units = fobj.get('max_load', 20 if fobj.get('is_full_time') else 6)
             if units > max_load_units:
@@ -976,7 +1021,7 @@ s.lab_units,
     for a in assigned:
         fid = a.get('faculty_id')
         t = a.get('time_slot')
-        fobj = next((f for f in faculty if f.get('id') == fid), None)
+        fobj = faculty_by_id.get(fid)
         if fobj and is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
             conflicts.append({
                 "type": "faculty_unavailable_violation",
@@ -1044,7 +1089,7 @@ s.lab_units,
 
     for u in unassigned:
         sid = u['subject_id']
-        subj_obj = next((s for s in curriculum_subjects if s.get('id') == sid), None)
+        subj_obj = subject_by_id.get(sid)
         if not subj_obj:
             continue
 

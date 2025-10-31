@@ -5,7 +5,7 @@
       <div class="filter-group">
         <label>
           Academic Year:
-          <select v-model="selectedAcademicYear" @change="loadFilteredSchedule">
+          <select v-model="selectedAcademicYear" @change="onAcademicYearChange">
             <option v-for="year in academicYears" :key="year" :value="year">{{ year }}</option>
           </select>
         </label>
@@ -22,6 +22,14 @@
           <select v-model="selectedCourseSection" @change="filterSchedules">
             <option value="">All</option>
             <option v-for="section in courseSections" :key="section" :value="section">{{ section }}</option>
+          </select>
+        </label>
+
+        <label>
+          Faculty:
+          <select v-model="selectedFaculty" @change="filterSchedules">
+            <option value="">All</option>
+            <option v-for="faculty in facultyList" :key="faculty" :value="faculty">{{ faculty }}</option>
           </select>
         </label>
       </div>
@@ -42,7 +50,7 @@
           class="archive-btn"
           v-if="latestSchedule.length"
           @click="archiveCurrentBatch"
-          title="Archive the current latest batch"
+          :title="isSelectedActive() ? 'You cannot archive the current active schedule' : 'Archive the current latest batch'"
         >
           Archive Current Batch
         </button>
@@ -66,10 +74,10 @@
     </div>
 
     <!-- Faculty Loads View -->
-    <div v-if="activeView==='faculty'">
+    <div v-if="activeView==='faculty'" ref="facultyView">
       <div v-if="facultyLoads.length===0">No faculty loads available.</div>
       <div v-for="faculty in facultyLoads" :key="faculty.name" class="faculty-section">
-        <h4>{{ faculty.name }} (Total Units: {{ faculty.totalUnits }})</h4>
+        <h4>{{ formatFacultyHeader(faculty.name) }}</h4>
         <table class="styled-table">
           <thead>
             <tr>
@@ -92,17 +100,19 @@
             </tr>
           </tbody>
         </table>
+        <div class="total-units">Total Load Units: {{ faculty.totalUnits }}</div>
       </div>
     </div>
 
     <!-- Class Schedules View -->
-    <div v-if="activeView==='schedules'">
+    <div v-if="activeView==='schedules'" ref="schedulesView">
       <div v-if="Object.keys(courseSchedules).length===0">No class schedules available.</div>
       <div v-for="(schedules, section) in courseSchedules" :key="section" class="course-section">
         <h4>{{ section }}</h4>
         <table class="styled-table">
           <thead>
             <tr>
+              <th>Subject Code</th>
               <th>Subject</th>
               <th>Room</th>
               <th>Time</th>
@@ -112,6 +122,7 @@
           </thead>
           <tbody>
             <tr v-for="schedule in schedules" :key="schedule.id">
+              <td>{{ schedule.course_code || 'N/A' }}</td>
               <td>{{ schedule.subject || 'N/A' }}</td>
               <td>{{ schedule.classroom || 'N/A' }}</td>
               <td>{{ schedule.time || 'N/A' }}</td>
@@ -120,6 +131,7 @@
             </tr>
           </tbody>
         </table>
+        <div class="total-units">Total Load Units: {{ getSectionTotal(schedules) }}</div>
       </div>
     </div>
 
@@ -165,15 +177,24 @@
 
     <!-- Global loading modal -->
     <LoadingModal />
+    <ConfirmModal
+      :show="confirmOpen"
+      :message="confirmMessage"
+      @cancel="confirmOpen = false"
+      @confirm="confirmAction && confirmAction()"
+    />
   </div>
 </template>
 
 <script>
 import LoadingModal from "../components/LoadingModal.vue";
+import ConfirmModal from "../components/ConfirmModal.vue";
 import { useLoading } from "../composables/useLoading";
+import { useToast } from "../composables/useToast";
+import * as XLSX from "xlsx";
 
 export default {
-  components: { LoadingModal },
+  components: { LoadingModal, ConfirmModal },
   data() {
     return {
       activeView: 'faculty',
@@ -183,6 +204,8 @@ export default {
       selectedSemester: "",
       courseSections: [],
       selectedCourseSection: "",
+      facultyList: [],
+      selectedFaculty: "",
       latestSchedule: [],
       allSchedules: [], // ← store all fetched schedules
       facultyLoads: [],
@@ -193,18 +216,151 @@ export default {
       showArchiveDrawer: false,
       archives: [],
       isTogglingDisabled: false,
+      professors: [],
+      professorsByName: {},
+      // confirm modal state
+      confirmOpen: false,
+      confirmMessage: '',
+      confirmAction: null,
+      availableSchedules: [],
     };
   },
   setup() {
     const { show, hide } = useLoading();
-    return { showLoading: show, hideLoading: hide };
+    const { success, error, info } = useToast();
+    return { showLoading: show, hideLoading: hide, toastSuccess: success, toastError: error, toastInfo: info };
   },
   created() {
     this.loadLatestSchedule();
     this.fetchActiveScheduleInfo();
     this.loadArchives();
+    this.fetchProfessors();
   },
   methods: {
+    onAcademicYearChange() {
+      const availableSemesters = this.availableSchedules
+        .filter(s => s.academicYear === this.selectedAcademicYear)
+        .map(s => s.semester);
+      this.semesters = [...new Set(availableSemesters)];
+      if (!this.semesters.includes(this.selectedSemester)) {
+        this.selectedSemester = this.semesters[0] || '';
+      }
+      this.loadFilteredSchedule();
+    },
+    exportXlsx() {
+      try {
+        const wb = XLSX.utils.book_new();
+        const titleSuffix = `${this.selectedAcademicYear || ''} ${this.selectedSemester || ''}`.trim();
+        const container = this.activeView === 'faculty' ? this.$refs.facultyView : this.$refs.schedulesView;
+        if (!container) { this.toastError('Nothing to export'); return; }
+
+        const tables = Array.from(container.querySelectorAll('table'));
+        if (!tables.length) { this.toastError('No tables to export'); return; }
+
+        const toWch = (px) => Math.max(8, Math.round((px || 80) / 7));
+
+        tables.forEach((table, idx) => {
+          const sheet = XLSX.utils.table_to_sheet(table, { raw: true });
+          // Set column widths based on header cell widths if available
+          const headerRow = table.tHead && table.tHead.rows && table.tHead.rows[0];
+          if (headerRow) {
+            const widths = Array.from(headerRow.cells).map(th => ({ wch: toWch(parseInt(getComputedStyle(th).width)) }));
+            if (widths.length) sheet['!cols'] = widths;
+          }
+          // Name the sheet using the section header (preceding h4) if present
+          let name = `Table ${idx + 1}`;
+          const heading = table.previousElementSibling;
+          if (heading && heading.tagName === 'H4') {
+            name = heading.textContent.trim().slice(0, 31) || name; // Excel sheet name limit 31
+          }
+          // Ensure unique sheet names
+          let finalName = name;
+          let suffix = 1;
+          while (wb.SheetNames.includes(finalName)) {
+            const base = name.slice(0, 28);
+            finalName = `${base}-${++suffix}`;
+          }
+          XLSX.utils.book_append_sheet(wb, sheet, finalName);
+        });
+
+        const filename = `Schedule_${titleSuffix || 'export'}.xlsx`;
+        XLSX.writeFile(wb, filename);
+      } catch (e) {
+        console.error('XLSX export failed', e);
+        this.toastError('Failed to export XLSX');
+      }
+    },
+    exportPdf() {
+      try {
+        const container = this.activeView === 'faculty' ? this.$refs.facultyView : this.$refs.schedulesView;
+        if (!container) { this.toastError('Nothing to export'); return; }
+        const html = container.innerHTML;
+        const w = window.open('', '_blank');
+        if (!w) { this.toastError('Popup blocked. Allow popups to export'); return; }
+        const styles = `
+          <style>
+            body { font-family: Arial, sans-serif; }
+            h4 { margin: 16px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+            th { background: #f5f5f5; }
+            .total-units { text-align: right; font-weight: 600; margin-top: 8px; }
+          </style>
+        `;
+        w.document.write(`<!doctype html><html><head><title>Schedule</title>${styles}</head><body>${html}</body></html>`);
+        w.document.close();
+        w.focus();
+        w.print();
+        w.close();
+      } catch (e) {
+        console.error('PDF export failed', e);
+        this.toastError('Failed to export PDF');
+      }
+    },
+    async fetchProfessors() {
+      try {
+        const res = await fetch('/api/professors');
+        if (!res.ok) return;
+        this.professors = await res.json();
+        const byName = {};
+        (Array.isArray(this.professors) ? this.professors : []).forEach(p => {
+          const key = (p.name || '').toString().trim().toLowerCase();
+          if (key) byName[key] = p;
+        });
+        this.professorsByName = byName;
+      } catch (e) {
+        console.warn('Failed to fetch professors list', e);
+      }
+    },
+    humanizeFacultyType(raw) {
+      if (!raw) return null;
+      const toTitleCaseHyphen = (str) => str
+        .replace(/_/g, '-')
+        .split('-')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+        .join('-');
+      return String(raw)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(toTitleCaseHyphen)
+        .join(', ');
+    },
+    formatFacultyHeader(name) {
+      const key = (name || '').toString().trim().toLowerCase();
+      const prof = this.professorsByName[key] || null;
+      const type = this.humanizeFacultyType(prof ? (prof.type || prof.faculty_type) : null);
+      const dept = prof ? (prof.department || null) : null;
+      if (type && dept) return `${name} (${type}, ${dept})`;
+      if (type) return `${name} (${type})`;
+      if (dept) return `${name} (${dept})`;
+      return name || 'N/A';
+    },
+    formatFacultyCell(name) {
+      return this.formatFacultyHeader(name);
+    },
     async detectConflicts() {
   this.showLoading();
   try {
@@ -218,12 +374,11 @@ export default {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-
-    alert(data.message);
+    if (data?.message) this.toastSuccess(data.message); else this.toastInfo('Conflict detection finished');
     if (data.redirect) this.$router.push(data.redirect);
   } catch (err) {
     console.error(err);
-    alert('Conflict detection failed.');
+    this.toastError('Conflict detection failed');
       } finally { this.hideLoading(); }
 }
 ,
@@ -235,29 +390,50 @@ export default {
         const data = await res.json();
         const schedules = Array.isArray(data) ? data : data.schedules || [];
 
+        this.allSchedules = schedules; 
+
         if (!schedules.length) {
           this.latestSchedule = [];
-          this.allSchedules = [];
           this.facultyLoads = [];
           this.courseSchedules = {};
+          this.academicYears = [];
+          this.semesters = [];
+          this.availableSchedules = [];
+          this.selectedAcademicYear = '';
+          this.selectedSemester = '';
           return;
         }
 
-        this.allSchedules = schedules; // ← store all for later filtering
+        const uniqueScheduleKeys = new Set();
+        schedules.forEach(s => {
+          if (s.academicYear && s.semester) {
+            uniqueScheduleKeys.add(`${s.academicYear}|${s.semester}`);
+          }
+        });
+        this.availableSchedules = Array.from(uniqueScheduleKeys).map(key => {
+          const [academicYear, semester] = key.split('|');
+          return { academicYear, semester };
+        });
 
-        // Populate filters dynamically
-        this.academicYears = [...new Set(schedules.map(s => s.academicYear).filter(Boolean))];
-        this.semesters = [...new Set(schedules.map(s => s.semester).filter(Boolean))];
-        this.courseSections = [...new Set(schedules.map(s => s.course_section).filter(Boolean))];
+        this.academicYears = [...new Set(this.availableSchedules.map(s => s.academicYear))].sort((a, b) => b.localeCompare(a));
 
-        this.selectedAcademicYear ||= this.academicYears[0];
-        this.selectedSemester ||= this.semesters[0];
+        if (!this.selectedAcademicYear || !this.academicYears.includes(this.selectedAcademicYear)) {
+          this.selectedAcademicYear = this.academicYears[0] || '';
+        }
+        
+        const availableSemestersForYear = this.availableSchedules
+          .filter(s => s.academicYear === this.selectedAcademicYear)
+          .map(s => s.semester);
+        this.semesters = [...new Set(availableSemestersForYear)];
 
-        // Apply initial filter
+        if (!this.semesters.includes(this.selectedSemester)) {
+          this.selectedSemester = this.semesters[0] || '';
+        }
+
         this.loadFilteredSchedule();
       } catch (err) {
         console.error(err);
-        alert("Failed to load latest schedule.");
+        this.toastError("Failed to load latest schedule");
       } finally { this.hideLoading(); }
     },
 
@@ -285,6 +461,13 @@ export default {
 
       const latestBatchSchedules = filtered.filter(s => s.batch_id === latestBatchId);
       this.latestSchedule = latestBatchSchedules;
+
+      // Set course sections for the filter dropdown
+      const sections = new Set(this.latestSchedule.map(s => s.course_section));
+      this.courseSections = Array.from(sections).sort();
+
+      const faculty = new Set(this.latestSchedule.map(s => s.faculty));
+      this.facultyList = Array.from(faculty).sort();
 
       this.processFacultyLoads(this.latestSchedule);
       this.processCourseSchedules(this.latestSchedule);
@@ -327,7 +510,7 @@ export default {
         this.fetchActiveScheduleInfo();
       } catch (err) {
         console.error(err);
-        alert("Failed to set active schedule.");
+        this.toastError("Failed to set active schedule");
       } finally { this.hideLoading(); }
     },
 
@@ -345,11 +528,11 @@ export default {
           body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error("Failed to unset active schedule");
-        alert("Active schedule has been deactivated.");
+        this.toastSuccess("Active schedule has been deactivated");
         this.fetchActiveScheduleInfo();
       } catch (err) {
         console.error(err);
-        alert("Failed to deactivate active schedule.");
+        this.toastError("Failed to deactivate active schedule");
       } finally {
         this.isTogglingDisabled = false;
         this.hideLoading();
@@ -372,28 +555,39 @@ export default {
     },
 
     async archiveCurrentBatch() {
-      this.showLoading();
-      try {
-        if (!this.latestSchedule.length) return;
-        const batchId = this.latestSchedule[0].batch_id;
-        const payload = {
-          academicYear: this.selectedAcademicYear,
-          semester: this.selectedSemester,
-          batch_id: batchId,
-        };
-        const res = await fetch(`/api/archive-batch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error('Failed to archive batch');
-        alert('Current batch archived.');
-        await this.loadLatestSchedule();
-        this.loadArchives();
-      } catch (e) {
-        console.error(e);
-        alert('Failed to archive current batch.');
-      } finally { this.hideLoading(); }
+      if (this.isSelectedActive()) {
+        this.toastError("Cannot archive an Active Schedule");
+        return;
+      }
+      const ay = this.selectedAcademicYear;
+      const sem = this.selectedSemester;
+      this.confirmMessage = `Are you sure you want to archive the schedule for ${ay} – ${sem}?`;
+      this.confirmOpen = true;
+      this.confirmAction = async () => {
+        this.confirmOpen = false;
+        this.showLoading();
+        try {
+          if (!this.latestSchedule.length) return;
+          const batchId = this.latestSchedule[0].batch_id;
+          const payload = {
+            academicYear: this.selectedAcademicYear,
+            semester: this.selectedSemester,
+            batch_id: batchId,
+          };
+          const res = await fetch(`/api/archive-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error('Failed to archive batch');
+          this.toastSuccess('Current batch archived');
+          await this.loadLatestSchedule();
+          this.loadArchives();
+        } catch (e) {
+          console.error(e);
+          this.toastError('Failed to archive current batch');
+        } finally { this.hideLoading(); }
+      };
     },
 
     async restoreArchive(a) {
@@ -405,30 +599,35 @@ export default {
           body: JSON.stringify({ academicYear: a.academicYear, semester: a.semester, batch_id: a.batch_id }),
         });
         if (!res.ok) throw new Error('Failed to restore archive');
-        alert('Archive restored.');
+        this.toastSuccess('Archive restored');
         await this.loadLatestSchedule();
         this.loadArchives();
       } catch (e) {
         console.error(e);
-        alert('Failed to restore archive.');
+        this.toastError('Failed to restore archive');
       } finally { this.hideLoading(); }
     },
 
     async deleteArchive(a) {
-      if (!confirm(`Delete archive for ${a.academicYear} – ${a.semester} (Batch ${a.batch_id})? This cannot be undone.`)) return;
-      this.showLoading();
-      try {
-        const res = await fetch(`/api/archives/${a.id}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ academicYear: a.academicYear, semester: a.semester, batch_id: a.batch_id }),
-        });
-        if (!res.ok) throw new Error('Failed to delete archive');
-        this.archives = this.archives.filter(x => x.id !== a.id);
-      } catch (e) {
-        console.error(e);
-        alert('Failed to delete archive.');
-      } finally { this.hideLoading(); }
+      this.confirmMessage = `Delete archive for ${a.academicYear} – ${a.semester} (Batch ${a.batch_id})? This cannot be undone.`;
+      this.confirmOpen = true;
+      this.confirmAction = async () => {
+        this.confirmOpen = false;
+        this.showLoading();
+        try {
+          const res = await fetch(`/api/archives/${a.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ academicYear: a.academicYear, semester: a.semester, batch_id: a.batch_id }),
+          });
+          if (!res.ok) throw new Error('Failed to delete archive');
+          this.archives = this.archives.filter(x => x.id !== a.id);
+          this.toastSuccess('Archive deleted');
+        } catch (e) {
+          console.error(e);
+          this.toastError('Failed to delete archive');
+        } finally { this.hideLoading(); }
+      };
     },
 
     formatDate(d) {
@@ -439,8 +638,13 @@ export default {
       if (!this.latestSchedule.length) return;
       let rows = this.latestSchedule;
 
-      if (this.selectedCourseSection)
+      if (this.selectedCourseSection) {
         rows = rows.filter(r => r.course_section === this.selectedCourseSection);
+      }
+
+      if (this.selectedFaculty) {
+        rows = rows.filter(r => r.faculty === this.selectedFaculty);
+      }
 
       this.processFacultyLoads(rows);
       this.processCourseSchedules(rows);
@@ -477,6 +681,10 @@ export default {
     goToExport() {
       this.$router.push('/export');
     },
+    getSectionTotal(schedules) {
+      if (!Array.isArray(schedules)) return 0;
+      return schedules.reduce((sum, s) => sum + (parseFloat(s.units) || 0), 0);
+    },
   },
 };
 </script>
@@ -485,24 +693,28 @@ export default {
 <style scoped>
 .filters { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
 .filter-group { display:flex; align-items:center; gap:20px; }
-.filters label { display:flex; flex-direction:row; align-items:center; gap:8px; font-size:14px; }
-.filters select { padding:6px 10px; border:1px solid #ddd; border-radius:4px; background:white; min-width:120px; }
+.filters label { display:flex; flex-direction:row; align-items:center; gap:8px; font-size:13px; }
+.filters select { padding:6px 10px; border:1px solid #ddd; border-radius:4px; background:white; min-width:120px; font-size: 13px; }
 .actions { display:flex; gap:10px; }
-.export-btn { padding:8px 14px; background-color:#27ae60; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
-.stage-btn { padding:8px 14px; background-color:#2980b9; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
-.stage-btn.active { background-color:#1e3a8a; cursor: pointer; }
-.stage-btn:disabled { opacity:.75; cursor:not-allowed; }
-.archive-btn { padding:8px 14px; background-color:#7c3aed; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
-.archives-open-btn { padding:8px 14px; background-color:#475569; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; }
+.export-btn, .stage-btn, .archive-btn, .archives-open-btn, .detect-btn { padding:6px 12px; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; font-size: 11px; text-align: center; }
+.export-btn:hover, .stage-btn:hover, .archive-btn:hover, .archives-open-btn:hover, .detect-btn:hover { filter: brightness(1.2); }
+.export-btn { background-color:#27ae60; }
+.stage-btn { background-color:#2980b9; }
+.archive-btn { background-color:#7c3aed; }
+.archives-open-btn { background-color:#475569; }
+.detect-btn { background-color: #f39c12; }
 .export-btn:hover { background-color:#1e8449; }
 .stage-btn:hover { background-color:#1f6391; }
+.stage-btn.active { background-color:#1e3a8a; cursor: pointer; }
+.stage-btn:disabled { opacity:.75; cursor:not-allowed; }
 .view-toggle { display:flex; gap:10px; margin-bottom:20px; }
-.view-toggle button { padding:10px 20px; border:1px solid #ddd; background:white; color:#333; cursor:pointer; border-radius:5px; font-weight:500; transition:background-color .2s, color .2s; }
+.view-toggle button { padding:10px 20px; border:1px solid #ddd; background:white; color:#333; cursor:pointer; border-radius:5px; font-weight:500; transition:background-color .2s, color .2s; font-size: 13px; }
 .view-toggle button.active { background-color:#121212; color:white; }
 .styled-table { width:100%; border-collapse:collapse; border-radius:12px; overflow:hidden; background:white; box-shadow:0 4px 12px rgba(0,0,0,.05); margin-bottom:30px; }
-.styled-table th, .styled-table td { padding:12px 16px; border-bottom:1px solid #ddd; text-align:left; }
+.styled-table th, .styled-table td { padding:10px 14px; border-bottom:1px solid #ddd; text-align:left; font-size: 13px; }
 .styled-table th { background:#f5f5f5; font-weight:600; }
 .faculty-section { margin-bottom:40px; }
+.total-units { text-align:right; font-weight:600; margin-top:8px; color:#374151; font-size: 13px; }
 
 .active-banner {
   background-color: #e8f8f5;
@@ -510,7 +722,7 @@ export default {
   padding: 10px 15px;
   border-radius: 8px;
   margin-bottom: 20px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -569,4 +781,3 @@ export default {
 .ai-actions .delete { background:#ef4444; color:white; border:none; border-radius:8px; padding:6px 10px; cursor:pointer }
 .archive-empty { color:#64748b; padding:20px 0; text-align:center }
 </style>
-

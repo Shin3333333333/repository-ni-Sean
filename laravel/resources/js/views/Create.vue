@@ -1,11 +1,11 @@
 <template>
   <div class="create-page">
     <nav class="top-nav">
-      <button :class="{ active: currentView === 'create' }" @click="currentView = 'create'">Create Schedule</button>
-      <button :class="{ active: currentView === 'pending' }" @click="currentView = 'pending'">Pending Schedule</button>
+      <button :class="{ active: currentView === 'create' }" @click="onSwitch('create')">Create Schedule</button>
+      <button :class="{ active: currentView === 'pending' }" @click="onSwitch('pending')">Pending Schedule</button>
     </nav>
 
-    <CreatePanel v-if="currentView === 'create'" />
+    <CreatePanel v-if="currentView === 'create'" ref="createPanel" />
     <PendingPanel v-else />
   </div>
 </template>
@@ -19,6 +19,22 @@ export default {
   data() {
     return { currentView: "create" };
   },
+  methods: {
+    onSwitch(target) {
+      if (target === this.currentView) return;
+      // If leaving Create, show CreatePanel's leave prompt if unsaved
+      if (this.currentView === 'create' && this.$refs.createPanel &&
+          typeof this.$refs.createPanel.hasUnsavedChanges === 'function' &&
+          this.$refs.createPanel.hasUnsavedChanges()) {
+        const proceed = () => { this.currentView = target; };
+        if (typeof this.$refs.createPanel.openLeavePrompt === 'function') {
+          this.$refs.createPanel.openLeavePrompt(proceed);
+          return;
+        }
+      }
+      this.currentView = target;
+    }
+  }
 };
 </script>
 

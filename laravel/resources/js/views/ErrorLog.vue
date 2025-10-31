@@ -1,52 +1,63 @@
 <template>
   <div class="error-log">
 
+    <div class="page-title">
+      <h1>Error Log</h1>
+      <button class="refresh-btn" @click="refreshErrors" :disabled="loading">{{ loading ? 'Refreshing...' : 'Refresh' }}</button>
+    </div>
+
     <div class="filters">
-      <label>
-        Academic Year:
+      <div class="filter-group">
+        <label>Academic Year:</label>
         <select v-model="selectedYear">
           <option v-for="year in academicYears" :key="year" :value="year">{{ year }}</option>
         </select>
-      </label>
+      </div>
 
-      <label>
-        Semester:
+      <div class="filter-group">
+        <label>Semester:</label>
         <select v-model="selectedSemester">
           <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
         </select>
-      </label>
+      </div>
+
+      <button class="clear-filters-btn" @click="clearFilters">Clear Filters</button>
     </div>
 
-    <table class="styled-table">
-      <thead>
-        <tr>
-          <th>Conflict Type</th>
-          <th>Description</th>
-          <th>Severity</th>
-          <th>Solved</th>
-          <th>Options</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="error in errors" :key="error.id">
-          <td>{{ error.type }}</td>
-          <td>{{ error.description }}</td>
-          <td>{{ error.severity }}</td>
-          <td :class="error.resolved ? 'solved-yes' : 'solved-no'">
-            {{ error.resolved ? "Yes" : "No" }}
-          </td>
-          <td>
-            <button class="action-btn auto" @click="autoFix(error)">Auto Fix</button>
-            <button class="action-btn manual" @click="manualFix(error)">Manual Edit</button>
-          </td>
-        </tr>
-        <tr v-if="!errors.length">
-          <td colspan="5" class="no-errors">✅ No errors detected</td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-if="loading" class="loading-container">
+      <div class="spinner"></div>
+    </div>
+    <div v-else-if="errors.length > 0">
+      <table class="styled-table">
+        <thead>
+          <tr>
+            <th>Conflict Type</th>
+            <th>Description</th>
+            <th>Severity</th>
+            <th>Solved</th>
+            <th>Options</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="error in errors" :key="error.id">
+            <td>{{ error.type }}</td>
+            <td>{{ error.description }}</td>
+            <td>{{ error.severity }}</td>
+            <td :class="error.resolved ? 'solved-yes' : 'solved-no'">
+              {{ error.resolved ? "Yes" : "No" }}
+            </td>
+            <td>
+              <button class="action-btn auto" @click="autoFix(error)">Auto Fix</button>
+              <button class="action-btn manual" @click="manualFix(error)">Manual Edit</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-else class="no-errors-container">
+      ✅ No errors detected
+    </div>
 
-    <button class="revalidate-btn" @click="refreshErrors">Re-Validate</button>
   </div>
 </template>
 
@@ -55,12 +66,14 @@ import { errorStore } from "../assets/errorStore";
 
 export default {
   name: "ErrorLog",
+  emits: ['manual-fix'],
   data() {
     return {
-      selectedYear: "2025-2026",
-      selectedSemester: "1st Semester",
-      academicYears: ["2024-2025", "2025-2026", "2026-2027"],
-      semesters: ["1st Semester", "2nd Semester"],
+      selectedYear: null,
+      selectedSemester: null,
+      academicYears: [],
+      semesters: [],
+      loading: false,
     };
   },
   computed: {
@@ -68,30 +81,65 @@ export default {
       return errorStore.errors;
     },
   },
-  created() {
-    this.fetchErrors();
+  watch: {
+    selectedYear() {
+      this.fetchErrors();
+    },
+    selectedSemester() {
+      this.fetchErrors();
+    },
+  },
+  async created() {
+    await this.fetchErrors();
+    this.academicYears.sort().reverse(); // Sort years in descending order
+    this.selectedYear = this.academicYears.length > 0 ? this.academicYears[0] : null;
+    this.selectedSemester = this.semesters.length > 0 ? this.semesters[0] : null;
   },
   methods: {
     async fetchErrors() {
+      this.loading = true;
       try {
-        const response = await fetch("/api/errors");
+        const params = new URLSearchParams();
+        if (this.selectedYear) {
+          params.append('academic_year', this.selectedYear);
+        }
+        if (this.selectedSemester) {
+          params.append('semester', this.selectedSemester);
+        }
+
+        const response = await fetch(`/api/errors?${params}`);
         if (!response.ok) throw new Error("Failed to fetch errors");
         const data = await response.json();
-        errorStore.setErrors(data);
+        errorStore.setErrors(data.errors);
+        this.academicYears = data.academicYears;
+        this.semesters = data.semesters;
       } catch (error) {
         console.error(error);
         errorStore.setErrors([]);
+      } finally {
+        this.loading = false;
       }
     },
     refreshErrors() {
       this.fetchErrors();
     },
-    autoFix(error) {
-      alert(`AI auto-fixing error: ${error.type}`);
-      error.resolved = true;
+    async autoFix(error) {
+      try {
+        const response = await fetch(`/api/errors/${error.id}/fix`, { method: 'POST' });
+        if (!response.ok) throw new Error('Failed to apply auto-fix');
+        const fixedError = await response.json();
+        errorStore.updateError(fixedError);
+      } catch (err) {
+        console.error('Auto-fix failed:', err);
+        alert('Auto-fix failed. Please try again.');
+      }
     },
     manualFix(error) {
-      alert(`Manual editing: ${error.type}`);
+      this.$emit('manual-fix', error);
+    },
+    clearFilters() {
+      this.selectedYear = this.academicYears.length > 0 ? this.academicYears[0] : null;
+      this.selectedSemester = this.semesters.length > 0 ? this.semesters[0] : null;
     }
   }
 };
@@ -102,7 +150,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.page-title h1 {
   font-size: 1.5rem;
   font-weight: 700;
 }
@@ -120,16 +171,21 @@ export default {
   background: #c0392b;
 }
 
+.refresh-btn:disabled {
+  background: #e0e0e0;
+  cursor: not-allowed;
+}
+
 .filters {
   display: flex;
   gap: 20px;
   margin-bottom: 20px;
+  align-items: flex-end;
 }
 
 .filters label {
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   font-size: 14px;
 }
@@ -168,12 +224,15 @@ export default {
   border-bottom: none;
 }
 
-.no-errors {
+.no-errors-container {
   text-align: center;
-  padding: 16px;
-  font-style: italic;
+  padding: 40px;
+  font-size: 1.2rem;
   color: #2ecc71;
   font-weight: 600;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
 
 .solved-yes {
@@ -208,16 +267,57 @@ export default {
   background: #d68910;
 }
 
-.revalidate-btn {
-  background: #2ecc71;
+.clear-filters-btn {
+  background: #95a5a6;
   color: white;
   border: none;
-  padding: 10px 18px;
-  border-radius: 8px;
-  font-weight: 600;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-weight: bold;
   cursor: pointer;
 }
-.revalidate-btn:hover {
-  background: #27ae60;
+
+.clear-filters-btn:hover {
+  background: #7f8c8d;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.spinner {
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-left-color: #3498db;
+  animation: spin 1s ease infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

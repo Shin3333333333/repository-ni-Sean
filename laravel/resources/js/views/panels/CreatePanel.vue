@@ -49,7 +49,7 @@
           Finalize
         </button>
 
-        <button @click="exitSchedule" class="exit-btn">Exit</button>
+
 
         <button @click="sidebarOpen = !sidebarOpen" class="info-btn">{{ sidebarOpen ? 'Hide Details' : 'Show Details' }}</button>
       </div>
@@ -63,7 +63,7 @@
       <div class="schedules-area" :class="{ 'sidebar-open': sidebarOpen }">
         <div v-if="Object.keys(groupedSchedules).length > 0">
           <div v-for="(entries, groupKey) in filteredSchedules" :key="groupKey" class="faculty-section">
-            <h3>{{ groupKey }}</h3>
+            <h3>{{ formatFacultyHeader(groupKey) }}</h3>
             <table border="1" cellpadding="5" cellspacing="0" class="create-table">
               <thead>
                 <tr>
@@ -101,7 +101,7 @@
                   <td v-if="editMode"><input v-model.number="entry.units" type="number" min="0" /></td>
                   <td v-else>{{ entry.units ?? 0 }}</td>
 
-                  <td v-if="showFacultyColumn">{{ entry.faculty || groupKey }}</td>
+                  <td v-if="showFacultyColumn">{{ formatFacultyCell(entry, groupKey) }}</td>
 
                   <td v-if="editMode"><button @click="removeEntry(groupKey, index)">Remove</button></td>
                 </tr>
@@ -210,17 +210,43 @@
     </div>
 
     <LoadingModal />
+
+    <ConfirmModal
+      :show="showConfirmModal"
+      :title="confirmModalTitle"
+      :message="confirmModalMessage"
+      @confirm="handleConfirm"
+      @cancel="cancelConfirm"
+    />
+
+    <!-- Leave Page Prompt -->
+    <div v-if="showLeavePrompt" class="leave-overlay" role="dialog" aria-modal="true">
+      <div class="leave-modal">
+        <button class="leave-close" @click="cancelLeave" aria-label="Close">✖</button>
+        <div class="leave-header">
+          <span class="leave-icon">⚠️</span>
+          <h3>Unsaved changes</h3>
+        </div>
+        <p class="leave-text">Changes will not be saved if you leave this page.</p>
+        <div class="leave-actions">
+          <button @click="saveAndLeave" :disabled="leavingBusy">Save as Pending</button>
+          <button @click="proceedWithoutSaving" :disabled="leavingBusy">Proceed without saving</button>
+          
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 
 <script>
 import LoadingModal from "../../components/LoadingModal.vue";
+import ConfirmModal from "../../components/ConfirmModal.vue";
 import { useLoading } from "../../composables/useLoading";
 import "/resources/css/create.css";
 
 export default {
-  components: { LoadingModal },
+  components: { LoadingModal, ConfirmModal },
   data() {
     return {
       groupedSchedules: {},
@@ -231,6 +257,10 @@ export default {
       semester: "1st Semester",
       selectedFaculty: "All",
       selectedCourse: "All",
+      showConfirmModal: false,
+      confirmModalTitle: "",
+      confirmModalMessage: "",
+      confirmModalAction: null,
       sidebarOpen: false,
       unassigned: [],
       summary: null,
@@ -248,11 +278,48 @@ export default {
       occupiedSlotsByFaculty: {},
       occupiedSlotsByRoom: {},
       apiBase: '/api',
+      showLeavePrompt: false,
+      leavingBusy: false,
+      _pendingRouteNext: null,
+      _pendingRouteTo: null,
     };
   },
   setup() {
     const { show, hide } = useLoading();
     return { show, hide };
+  },
+  mounted() {
+    window.addEventListener('beforeunload', this.onBeforeUnload);
+    // Add a global router guard to intercept in-app navigations
+    if (this.$router && typeof this.$router.beforeEach === 'function') {
+      this._removeNavGuard = this.$router.beforeEach((to, from, next) => {
+        // Only guard when leaving this component's route
+        const isLeavingThisView = from.fullPath === this.$route.fullPath;
+        // Allow seamless navigation to Pending panel without prompting
+        const goingToPending = (to && (
+          (to.name && String(to.name).toLowerCase().includes('pending')) ||
+          (to.path && String(to.path).toLowerCase().includes('pending'))
+        ));
+        if (isLeavingThisView && goingToPending) {
+          next();
+          return;
+        }
+        if (isLeavingThisView && this.hasUnsavedChanges()) {
+          this._pendingRouteNext = next;
+          this._pendingRouteTo = to;
+          this.showLeavePrompt = true;
+          // Do not call next yet; wait for user action
+          return;
+        }
+        next();
+      });
+    }
+  },
+  beforeUnmount() {
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
+    if (this._removeNavGuard && typeof this._removeNavGuard === 'function') {
+      try { this._removeNavGuard(); } catch (e) { /* noop */ }
+    }
   },
   watch: {
     semester(newVal, oldVal) {
@@ -272,8 +339,17 @@ export default {
     uniqueCourses() {
       const set = new Set();
       Object.values(this.groupedSchedules).forEach((entries) =>
-        entries.forEach((e) => e.courseCode && set.add(e.courseCode))
+        entries.forEach((e) => {
+          if (e.courseSection && e.courseSection !== '-') {
+            set.add(e.courseSection);
+          }
+        })
       );
+      this.unassigned.forEach((u) => {
+        if (u.course_section && u.course_section !== '-') {
+          set.add(u.course_section);
+        }
+      });
       return Array.from(set).sort();
     },
     uniqueFaculties() {
@@ -300,9 +376,11 @@ export default {
         const filtered = {};
         Object.entries(schedules).forEach(([faculty, entries]) => {
           entries.forEach((entry) => {
-            if (entry.courseCode === this.selectedCourse) {
-              if (!filtered[entry.courseCode]) filtered[entry.courseCode] = [];
-              filtered[entry.courseCode].push({ ...entry, faculty });
+            if (entry.courseSection === this.selectedCourse) {
+              if (!filtered[entry.courseSection]) {
+                filtered[entry.courseSection] = [];
+              }
+              filtered[entry.courseSection].push({ ...entry, faculty });
             }
           });
         });
@@ -349,7 +427,129 @@ export default {
       return loads;
     },
   },
+  beforeRouteLeave(to, from, next) {
+    // Allow seamless navigation to Pending panel without prompting
+    const goingToPending = (to && (
+      (to.name && String(to.name).toLowerCase().includes('pending')) ||
+      (to.path && String(to.path).toLowerCase().includes('pending'))
+    ));
+    if (goingToPending) {
+      next();
+      return;
+    }
+    if (!this.hasUnsavedChanges()) {
+      next();
+      return;
+    }
+    this._pendingRouteNext = next;
+    this._pendingRouteTo = to;
+    this.showLeavePrompt = true;
+  },
   methods: {
+    openLeavePrompt(nextCallback) {
+      this._pendingRouteNext = typeof nextCallback === 'function' ? nextCallback : null;
+      this.showLeavePrompt = true;
+    },
+    hasUnsavedChanges() {
+      const hasAssigned = Object.keys(this.groupedSchedules || {}).some(k => (this.groupedSchedules[k] || []).length > 0);
+      const hasUnassigned = (this.unassigned || []).length > 0;
+      return hasAssigned || hasUnassigned;
+    },
+    onBeforeUnload(e) {
+      if (this.hasUnsavedChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    },
+    async saveAndLeave() {
+      try {
+        this.leavingBusy = true;
+        // Close prompt immediately and show loading while saving
+        this.showLeavePrompt = false;
+        if (typeof this.show === 'function') this.show();
+        await this.saveSchedule('pending');
+        // Clear local state to avoid re-triggering guard
+        this.groupedSchedules = {};
+        this.unassigned = [];
+        const cont = this._pendingRouteNext;
+        this.resetLeaveState();
+        if (cont) cont();
+      } catch (err) {
+        console.error(err);
+        this.showError('Failed to save as pending.');
+        this.leavingBusy = false;
+      }
+    },
+    proceedWithoutSaving() {
+      const cont = this._pendingRouteNext;
+      this.resetLeaveState();
+      if (cont) cont();
+    },
+    cancelLeave() {
+      // Simply close the prompt and do not continue navigation
+      this.resetLeaveState();
+    },
+    resetLeaveState() {
+      this.showLeavePrompt = false;
+      this.leavingBusy = false;
+      this._pendingRouteTo = null;
+      this._pendingRouteNext = null;
+    },
+    // Resolve a faculty from name safely
+    getFacultyByNameSafe(name) {
+      if (!name) return null;
+      return this.findFacultyByName(name) || null;
+    },
+
+    // Convert raw type values like "full_time, part_time" to "Full-time, Part-time"
+    humanizeFacultyType(raw) {
+      if (!raw) return null;
+      const toTitleCaseHyphen = (str) => {
+        return str
+          .replace(/_/g, '-')
+          .split('-')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+          .join('-');
+      };
+      // Support comma-separated list of types
+      return String(raw)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(toTitleCaseHyphen)
+        .join(', ');
+    },
+
+    // Format display string: "Name (Type, Department)" where parts exist
+    formatFacultyDisplay(name, facObj) {
+      const faculty = facObj || this.getFacultyByNameSafe(name);
+      const displayName = (faculty && faculty.name) || name || 'Unknown';
+      const rawType = (faculty && (faculty.type || faculty.faculty_type)) ? (faculty.type || faculty.faculty_type) : null;
+      const typePart = this.humanizeFacultyType(rawType);
+      const deptPart = (faculty && faculty.department) ? faculty.department : null;
+      if (typePart && deptPart) return `${displayName} (${typePart}, ${deptPart})`;
+      if (typePart) return `${displayName} (${typePart})`;
+      if (deptPart) return `${displayName} (${deptPart})`;
+      return displayName;
+    },
+
+    // Header formatter for group key (faculty name)
+    formatFacultyHeader(groupKey) {
+      const fac = this.getFacultyByNameSafe(groupKey);
+      return this.formatFacultyDisplay(groupKey, fac);
+    },
+
+    // Cell formatter for entry row
+    formatFacultyCell(entry, groupKey) {
+      const name = entry.faculty || entry.faculty_name || groupKey;
+      // Prefer lookup by id if available
+      let fac = null;
+      if (entry.faculty_id) fac = this.findFacultyById(entry.faculty_id);
+      if (!fac) fac = this.getFacultyByNameSafe(name);
+      return this.formatFacultyDisplay(name, fac);
+    },
     getFacultyColorClass(option, subject) {
   const f = this.facultyList.find(f => f.id === option.faculty_id);
   if (!f) return "bg-gray-200";
@@ -608,14 +808,27 @@ export default {
     return false; // No conflict
   },
   confirmOverloadAssign(subject, option) {
-    // Simple browser confirm dialog; can be replaced with a nicer modal later
     const faculty = option.faculty_name || 'Selected Faculty';
-    const msg = `Assigning to ${faculty} will exceed their load. Do you want to proceed?`;
-    if (window.confirm(msg)) {
-      // Use assignFromSuggestion so behavior is consistent
-      this.assignFromSuggestion(subject, option);
-    }
+    this.confirmModalTitle = "Confirm Overload";
+    this.confirmModalMessage = `Assigning to ${faculty} will exceed their load. Do you want to proceed?`;
+    this.confirmModalAction = () => this.assignFromSuggestion(subject, option);
+    this.showConfirmModal = true;
   },
+
+  handleConfirm() {
+    if (this.confirmModalAction) {
+      this.confirmModalAction();
+    }
+    this.cancelConfirm();
+  },
+
+  cancelConfirm() {
+    this.showConfirmModal = false;
+    this.confirmModalTitle = "";
+    this.confirmModalMessage = "";
+    this.confirmModalAction = null;
+  },
+
      showError(msg) {
     this.message = msg;
     this.messageType = "error";
@@ -1105,11 +1318,13 @@ undoLastAssignment() {
                 current_load: 0, // start at zero; will aggregate from groupedSchedules
                 max_load: opt.faculty_max_load || 12,
                 department: opt.faculty_department || null,
+                type: opt.faculty_type || opt.type || null,
               };
             } else {
               // ensure max_load and department exist if missing
               facultyMap[opt.faculty_id].max_load = facultyMap[opt.faculty_id].max_load || opt.faculty_max_load || 12;
               facultyMap[opt.faculty_id].department = facultyMap[opt.faculty_id].department || opt.faculty_department || null;
+              facultyMap[opt.faculty_id].type = facultyMap[opt.faculty_id].type || opt.faculty_type || opt.type || null;
             }
           });
         });
@@ -1142,6 +1357,7 @@ undoLastAssignment() {
             merged[key].department = merged[key].department || f.department || null;
             merged[key].id = merged[key].id || f.id || null;
             merged[key].name = merged[key].name || f.name || '';
+            merged[key].type = merged[key].type || f.type || f.faculty_type || null;
           }
         });
     this.facultyList = Object.values(merged);
@@ -1728,4 +1944,74 @@ async saveSchedule(mode = 'pending') {
   margin-top: 2px;
 }
 
+</style>
+
+<style scoped>
+/* Leave Prompt Overlay */
+.leave-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.leave-modal {
+  background: #fff7ed; /* warning tinted */
+  padding: 18px 20px 16px 20px;
+  border-radius: 10px;
+  width: 380px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.25);
+  border: 1px solid #fdba74; /* amber-300 */
+  position: relative;
+}
+.leave-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.leave-icon {
+  font-size: 20px;
+}
+.leave-modal h3 {
+  margin: 0 0 8px 0;
+  color: #9a3412; /* amber-800 */
+}
+.leave-text {
+  color: #7c2d12; /* amber-900 */
+  margin: 4px 0 10px 0;
+}
+.leave-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.leave-actions button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  cursor: pointer;
+}
+.leave-actions button:first-child {
+  background: #10b981;
+  color: #fff;
+  border-color: #10b981;
+}
+.leave-actions button:last-child {
+  background: #e5e7eb;
+}
+.leave-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #7c2d12;
+  cursor: pointer;
+}
 </style>
