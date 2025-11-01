@@ -69,7 +69,7 @@
           </div>
         </div>
 
-        <main class="content-card">
+        <main :class="{ 'content-card': !isPanel }">
           <router-view />
         </main>
         <ToastContainer />
@@ -97,6 +97,10 @@ export default {
     };
   },
   computed: {
+    isPanel() {
+      const panelRoutes = ['/create', '/schedule/modify'];
+      return panelRoutes.includes(this.$route.path);
+    },
     activeScheduleDisplay() {
       if (this.activeAcademicYear && this.activeSemester) {
         return `${this.activeAcademicYear} - ${this.activeSemester}`;
@@ -123,6 +127,10 @@ export default {
       }
     },
     isAuthenticated(newVal) {
+      if (newVal) {
+        this.fetchUserInfo();
+      }
+
       // Clean up existing interval
       if (this.scheduleUpdateInterval) {
         clearInterval(this.scheduleUpdateInterval);

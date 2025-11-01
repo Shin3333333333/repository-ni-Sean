@@ -13,27 +13,46 @@ class PendingScheduleController extends Controller
 {
     // ✅ List available batches
         // Controller: PendingScheduleController.php
-        public function index()
+        public function index(Request $request)
             {
-                $batches = \DB::table('pending_schedules')
-                    ->select(
+                $query = \DB::table('pending_schedules');
+
+                // if user is not admin, only show their own batches
+                // Note: Assumes an 'isAdmin' method or attribute on the User model
+                if ($request->user() && method_exists($request->user(), 'isAdmin') && !$request->user()->isAdmin()) {
+                    $query->where('user_id', $request->user()->id);
+                }
+
+                $batches = $query->select(
                         'batch_id',
                         'academicYear',
                         'semester',
+                        'user_id', // Include user_id in the selection
                         \DB::raw('MIN(created_at) as created_at')
                     )
-                    ->groupBy('batch_id', 'academicYear', 'semester')
-                    ->orderByDesc('created_at')
+                    ->groupBy('batch_id', 'academicYear', 'semester', 'user_id')
+                    ->orderBy(DB::raw('MIN(created_at)'), 'desc')
                     ->get();
 
                 return response()->json(['batches' => $batches]);
             }
 
-public function show($batch_id)
+public function show(Request $request, $batch_id)
 {
-    $pending = PendingSchedule::where('batch_id', $batch_id)
-        ->where('status', 'pending')
-        ->get();
+    $query = PendingSchedule::where('batch_id', $batch_id)
+        ->where('status', 'pending');
+
+    // If the user is not an admin, scope the query to their own schedules.
+    if ($request->user() && method_exists($request->user(), 'isAdmin') && !$request->user()->isAdmin()) {
+        $query->where('user_id', $request->user()->id);
+    }
+
+    $pending = $query->get();
+
+    if ($pending->isEmpty()) {
+        // Even if the batch exists, if it doesn't belong to the user, treat as not found.
+        return response()->json(['grouped' => [], 'unassigned' => []]);
+    }
 
     $grouped = [];
     $unassigned = [];
@@ -95,32 +114,54 @@ public function show($batch_id)
 }
 
 
-public function destroy($batch_id)
+public function destroy(Request $request, $batch_id)
 {
-    PendingSchedule::where('batch_id', $batch_id)->delete();
+    $query = PendingSchedule::where('batch_id', $batch_id);
 
-    return response()->json(['success' => true, 'message' => 'Batch deleted successfully']);
+    // If the user is not an admin, ensure they can only delete their own batches.
+    if ($request->user() && method_exists($request->user(), 'isAdmin') && !$request->user()->isAdmin()) {
+        $query->where('user_id', $request->user()->id);
+    }
+
+    $deletedCount = $query->delete();
+
+    if ($deletedCount > 0) {
+        return response()->json(['success' => true, 'message' => 'Batch deleted successfully']);
+    } else {
+        // This can happen if the batch doesn't exist or doesn't belong to the user.
+        return response()->json(['success' => false, 'message' => 'Batch not found or access denied'], 404);
+    }
 }
 
-public function finalize($batch_id)
+public function finalize(Request $request, $batch_id)
 {
-    $pending = PendingSchedule::where('batch_id', $batch_id)->get();
+    $query = PendingSchedule::where('batch_id', $batch_id);
+
+    // Scope query to user unless admin
+    if ($request->user() && method_exists($request->user(), 'isAdmin') && !$request->user()->isAdmin()) {
+        $query->where('user_id', $request->user()->id);
+    }
+
+    $pending = $query->get();
 
     if ($pending->isEmpty()) {
-        return response()->json(['success' => false, 'message' => 'Batch not found'], 404);
+        return response()->json(['success' => false, 'message' => 'Batch not found or access denied'], 404);
     }
 
     // Example: Move records to the official schedules table
     foreach ($pending as $p) {
         \DB::table('schedules')->insert([
             'faculty' => $p->faculty,
+            'faculty_id' => $p->faculty_id,
             'subject' => $p->subject,
             'time' => $p->time,
             'classroom' => $p->classroom,
             'course_code' => $p->course_code,
+            'course_section' => $p->course_section,
             'units' => $p->units,
             'academicYear' => $p->academicYear,
             'semester' => $p->semester,
+            'user_id' => $p->user_id,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -140,8 +181,9 @@ public function finalize($batch_id)
     if (!$data || !is_array($data)) {
         return response()->json(['success' => false, 'message' => 'Invalid data'], 400);
     }
-    // ✅ Generate unique batch ID once per save
+    
     $batchId = Str::uuid();
+    $userId = $request->input('user_id', Auth::id());
 
     // Derive base academicYear and semester from first row
     $baseYear = $data[0]['academicYear'] ?? 'Unknown';
@@ -165,7 +207,7 @@ public function finalize($batch_id)
                 'academicYear' => $finalAcademicYear,
                 'semester' => $semester,
                 'status' => $item['status'] ?? 'pending',
-                'user_id' => auth()->id(),
+                'user_id' => $userId,
                 'batch_id' => $batchId,
             ];
 
@@ -232,6 +274,7 @@ public function updateBatch(Request $request, $batchId)
 {
     $schedules = $request->input('schedules', []);
     $deletedIds = array_filter(array_map('intval', $request->input('deleted_ids', [])));
+    $userId = $request->input('user_id', auth()->id()); // Get user_id from request or fallback to authenticated user
 
     DB::beginTransaction();
     try {
@@ -286,6 +329,7 @@ public function updateBatch(Request $request, $batchId)
                 }
 
                 $updateData['updated_at'] = now();
+                $updateData['user_id'] = $userId;
 
                 // If frontend included possible_assignments or payload, persist it to payload column if present
                 if (Schema::hasColumn('pending_schedules', 'payload')) {
@@ -319,6 +363,7 @@ public function updateBatch(Request $request, $batchId)
                     'batch_id' => $batchId,
                     'created_at' => now(),
                     'updated_at' => now(),
+                    'user_id' => $userId,
                 ];
 
                 // Optional/nullable columns
@@ -332,7 +377,7 @@ public function updateBatch(Request $request, $batchId)
                     $createData['faculty_id'] = $sched['faculty_id'];
                 }
                 if (Schema::hasColumn('pending_schedules', 'user_id')) {
-                    $createData['user_id'] = auth()->id();
+                    $createData['user_id'] = $userId;
                 }
 
                 if (Schema::hasColumn('pending_schedules', 'payload') && isset($sched['payload'])) {
@@ -362,6 +407,3 @@ public function updateBatch(Request $request, $batchId)
 
 
 }
-
-
-

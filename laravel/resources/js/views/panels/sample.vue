@@ -1243,4 +1243,3 @@ assignSuggestion(rowId, suggestion) {
 }
 
 </style>
-

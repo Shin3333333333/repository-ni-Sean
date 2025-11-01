@@ -1415,6 +1415,7 @@ async saveSchedule(mode = 'pending') {
           semester: this.semester,
           status: mode === 'finalized' ? 'finalized' : 'pending',
           batch_id: this.selectedBatch || null,
+          user_id: this.$root.currentUserId || null,
         });
       });
     });
@@ -1434,6 +1435,7 @@ async saveSchedule(mode = 'pending') {
           status: 'pending',
           possible_assignments: u.possible_assignments || u.possible_assignments_original || [],
           payload: u,
+          user_id: this.$root.currentUserId || null,
         });
       });
     }
@@ -1446,9 +1448,13 @@ async saveSchedule(mode = 'pending') {
     // If finalizing without a batch_id, first save as pending
     if (mode === 'finalized' && !this.selectedBatch) {
       const pendingPayload = buildScheduleArray({ grouped: this.groupedSchedules }, true);
+      const token = localStorage.getItem('authToken');
       const pendingRes = await fetch(`${this.apiBase}/save-schedule`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({ schedule: pendingPayload }),
       });
 
@@ -1484,9 +1490,13 @@ async saveSchedule(mode = 'pending') {
       ? `${this.apiBase}/finalized-schedules` 
       : `${this.apiBase}/save-schedule`;
 
+    const token = localStorage.getItem('authToken');
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({ schedule: scheduleArray, batch_id: this.selectedBatch }),
     });
 

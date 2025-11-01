@@ -15,7 +15,8 @@ use App\Http\Controllers\{
     FinalizedScheduleController,
     ActiveScheduleController,
     ErrorLogController,
-    ScheduleArchiveController
+    ScheduleArchiveController,
+    UserController
 };
 
 /*
@@ -37,6 +38,10 @@ Route::apiResource('subjects', SubjectsController::class);
 Route::apiResource('schedules', SchedulesController::class);
 Route::apiResource('error-logs', ErrorLogsController::class);
 Route::apiResource('rooms', RoomsController::class);
+Route::get('/users', [UserController::class, 'index']);
+Route::get('/user', [UserController::class, 'show'])->middleware('auth:sanctum');
+Route::put('/user', [UserController::class, 'update'])->middleware('auth:sanctum');
+Route::put('/user/password', [UserController::class, 'updatePassword'])->middleware('auth:sanctum');
 
 /*
 |--------------------------------------------------------------------------
@@ -71,15 +76,15 @@ Route::get('/schedule/data', function () {
 });
 
 Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
-Route::post('/save-schedule', [PendingScheduleController::class, 'store']);
+Route::post('/save-schedule', [PendingScheduleController::class, 'store'])->middleware('auth:sanctum');
 Route::get('/pending-schedules', [PendingScheduleController::class, 'index']);
 Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'show']);
-Route::put('/pending-schedules/{batchId}/update', [PendingScheduleController::class, 'updateBatch']);
-Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize']);
-Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy']);
+Route::put('/pending-schedules/{batchId}/update', [PendingScheduleController::class, 'updateBatch'])->middleware('auth:sanctum');
+Route::post('/pending-schedules/{batch_id}/finalize', [PendingScheduleController::class, 'finalize'])->middleware('auth:sanctum');
+Route::delete('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'destroy'])->middleware('auth:sanctum');
 
 // Finalized schedules
-Route::post('/finalized-schedules', [FinalizedScheduleController::class, 'saveFinalizedSchedule']);
+Route::post('/finalized-schedules', [FinalizedScheduleController::class, 'saveFinalizedSchedule'])->middleware('auth:sanctum');
 Route::get('/finalized-schedules', [FinalizedScheduleController::class, 'index']);
 Route::post('/finalized-schedules/stage', [FinalizedScheduleController::class, 'stageActive']);
 Route::get('/finalized-schedules/active', [FinalizedScheduleController::class, 'getActive']);

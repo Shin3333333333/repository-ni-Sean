@@ -8,10 +8,13 @@ const api = axios.create({
   },
 });
 
-// If token exists in localStorage, attach it to every request
-const token = localStorage.getItem("authToken");
-if (token) {
-  api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-}
+// Dynamically set the token before each request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("authToken");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default api;
