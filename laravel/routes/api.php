@@ -1,6 +1,16 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\File;
+
+Route::get('/departments', function () {
+    $path = base_path('ai/departments.json');
+    if (!File::exists($path)) {
+        abort(404);
+    }
+    $json = File::get($path);
+    return response($json, 200, ['Content-Type' => 'application/json']);
+});
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\{
     ProfessorsController,
@@ -16,7 +26,8 @@ use App\Http\Controllers\{
     ActiveScheduleController,
     ErrorLogController,
     ScheduleArchiveController,
-    UserController
+    UserController,
+    ProfessorController
 };
 
 /*
@@ -43,6 +54,8 @@ Route::get('/users', [UserController::class, 'index']);
 Route::get('/user', [UserController::class, 'show'])->middleware('auth:sanctum');
 Route::put('/user', [UserController::class, 'update'])->middleware('auth:sanctum');
 Route::put('/user/password', [UserController::class, 'updatePassword'])->middleware('auth:sanctum');
+Route::put('/professor/details', [ProfessorController::class, 'updateDetails'])->middleware('auth:sanctum');
+Route::get('/professor/details', [ProfessorController::class, 'getDetails'])->middleware('auth:sanctum');
 
 /*
 |--------------------------------------------------------------------------

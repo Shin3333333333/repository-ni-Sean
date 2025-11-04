@@ -15,13 +15,25 @@
 
       <h1 class="logo side-logo">timetable</h1>
       <nav class="side-nav-list">
-        <router-link to="/dashboard" class="side-link" active-class="active">Dashboard</router-link>
-        <router-link to="/manage" class="side-link" active-class="active">Manage</router-link>
-        <router-link to="/schedule" class="side-link" active-class="active">View Schedule</router-link>
-        </nav>
+        <!-- Admin & Superadmin Links -->
+        <template v-if="userType === 'admin' || userType === 'superadmin'">
+          <router-link to="/dashboard" class="side-link" active-class="active">Dashboard</router-link>
+          <router-link to="/manage" class="side-link" active-class="active">Manage</router-link>
+          <router-link to="/schedule" class="side-link" active-class="active">View Schedule</router-link>
+        </template>
 
+        <!-- Faculty Links -->
+        <template v-if="userType === 'faculty'">
+          <router-link to="/faculty/dashboard" class="side-link" active-class="active">Dashboard</router-link>
+          <!-- You can add more faculty-specific links here -->
+        </template>
+      </nav>
+
+      <!-- Admin & Superadmin Buttons -->
+      <template v-if="userType === 'admin' || userType === 'superadmin'">
         <router-link to="/error-log" class="error-loog-btn" active-class="active">Error Log</router-link>
         <router-link to="/create" class="generate-btn" active-class="active">Generate</router-link>
+      </template>
       
     </aside>
 
@@ -34,7 +46,7 @@
       <header class="top-bar">
         <h1 class="logo top-logo" @click="toggleSidebar">timetable</h1>
         <div class="top-actions">
-          <router-link to="/admin-account" class="profile-wrap" aria-label="Admin account">
+          <router-link :to="userType === 'faculty' ? '/faculty-account' : '/admin-account'" class="profile-wrap" aria-label="Account">
             <img :src="profilepic" alt="Profile" class="profile-icon" />
           </router-link>
           <button class="logout-btn" @click="logout">Logout</button>
@@ -91,6 +103,7 @@ export default {
       isAuthenticated: false,
       sidebarOpen: false,
       currentUserName: 'User',
+      userType: null, // Add userType to data
       activeAcademicYear: '',
       activeSemester: '',
       scheduleUpdateInterval: null,
@@ -111,6 +124,7 @@ export default {
   created() {
     const token = localStorage.getItem('authToken');
     this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+    this.userType = localStorage.getItem('userType'); // Get user type
     this.fetchUserInfo();
     if (this.isAuthenticated) {
       this.fetchActiveScheduleInfo();
@@ -120,6 +134,7 @@ export default {
     $route() {
       const token = localStorage.getItem('authToken');
       this.isAuthenticated = token && token !== 'undefined' && token !== 'null';
+      this.userType = localStorage.getItem('userType'); // refetch userType
       this.sidebarOpen = false;
       // Refresh active schedule when navigating
       if (this.isAuthenticated) {
@@ -181,7 +196,10 @@ export default {
     },
     logout() {
       localStorage.removeItem('authToken');
+      localStorage.removeItem('userName');
+      localStorage.removeItem('userType'); // Clear user type
       this.isAuthenticated = false;
+      this.userType = null; // Reset userType
       this.$router.push('/login').catch(() => {});
     },
     toggleSidebar() {

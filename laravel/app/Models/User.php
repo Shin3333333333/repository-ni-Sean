@@ -20,6 +20,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'is_temporary',
+        'type_id',
     ];
 
     /**
@@ -41,4 +43,14 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         
     ];
+
+    public function type()
+    {
+        return $this->belongsTo(AccountType::class, 'type_id');
+    }
+
+    public function professor()
+    {
+        return $this->hasOne(Professor::class);
+    }
 }

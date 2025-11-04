@@ -1,17 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import Login from '../views/Login.vue';
-import Schedule from '../views/Schedule.vue';
-import Create from '../views/Create.vue';
-import Export from '../views/Export.vue';
-import AdminAccount from '../views/AdminAccount.vue';
-import ErrorLog from '../views/ErrorLog.vue';
-import ModifySchedule from '../views/ModifySchedule.vue';
-import Manage from '../views/Manage.vue';
-import Dashboard from '../views/Dashboard.vue';
+import Login from '../pages/views/Login.vue';
+import Schedule from '../pages/views/admin/Schedule.vue';
+import Create from '../pages/views/admin/Create.vue';
+import Export from '../pages/views/admin/Export.vue';
+import AdminAccount from '../pages/views/admin/AdminAccount.vue';
+import ErrorLog from '../pages/views/admin/ErrorLog.vue';
+import ModifySchedule from '../pages/views/admin/ModifySchedule.vue';
+import Manage from '../pages/views/admin/Manage.vue';
+import Dashboard from '../pages/views/admin/Dashboard.vue';
+import FacultyDashboard from '../pages/views/faculty/Dashboard.vue';
+import FacultyAccount from '../pages/views/faculty/FacultyAccount.vue';
 
 const routes = [
   { path: '/login', component: Login },
-  { path: '/', redirect: '/schedule' },
   { path: '/schedule', component: Schedule },
   { path: '/create', component: Create },
   { path: '/export', component: Export },
@@ -20,6 +21,9 @@ const routes = [
   { path: '/schedule/modify', component: ModifySchedule },
   { path: '/manage', component: Manage },
   { path: '/dashboard', component: Dashboard },
+  { path: '/faculty/dashboard', component: FacultyDashboard },
+  { path: '/faculty-account', component: FacultyAccount },
+  { path: '/', redirect: '/dashboard' },
 ];
 
 const router = createRouter({

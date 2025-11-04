@@ -3,6 +3,7 @@ import mysql.connector
 from ortools.sat.python import cp_model
 import re
 import json
+import json
 import sys
 import argparse
 from collections import defaultdict
@@ -385,15 +386,8 @@ s.lab_units,
 
     except Exception as e:
         print(f"[WARNING] Could not load departments from DB, using hardcoded fallbacks. Reason: {e}", file=sys.stderr)
-        department_info = {
-            "information technology": {'name': 'Information Technology', 'keywords': ["SOFTWARE", "COMPUTER", "PROGRAMMING", "IT", "ALGORITHMS"], 'prefixes': ['ITP', 'IT', 'ITC']},
-            "accounting": {'name': 'Accounting', 'keywords': ["ACCOUNTING", "FINANCE", "AUDITING", "BOOKKEEPING"], 'prefixes': ['ACC', 'ACE']},
-            "marketing": {'name': 'Marketing', 'keywords': ["MARKETING", "ADVERTISING", "SALES"], 'prefixes': ['MKT']},
-            "entrepreneurship": {'name': 'Entrepreneurship', 'keywords': ["ENTREPRENEUR", "BUSINESS PLAN", "STARTUP"], 'prefixes': ['ENT', 'EN', 'ENE', 'ENS', 'ENC']},
-            "physical education": {'name': 'Physical Education', 'keywords': ["PE", "PHYSICAL EDUCATION", "SPORT", "HEALTH"], 'prefixes': ['PE', 'PED']},
-            "nstp": {'name': 'NSTP', 'keywords': ["NSTP"], 'prefixes': ['NSTP']},
-            "general education": {'name': 'General Education', 'keywords': ["MATH", "MATHEMATICS", "HUMANITIES", "PHILOSOPHY", "SELF", "WORLD", "ETHICS", "SCIENCE", "ARTS", "SOCIAL STUDIES", "HISTORY"], 'prefixes': ['GE', 'GEE', 'MATH']},
-        }
+        with open('departments.json', 'r') as f:
+            department_info = json.load(f)
         department_prefix_map = {}
         for lower_dept_name, info in department_info.items():
             for prefix in info['prefixes']:

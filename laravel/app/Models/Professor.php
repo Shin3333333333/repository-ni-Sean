@@ -14,9 +14,9 @@ class Professor extends Model
         'type',
         'department',
         'max_load',
-        'status',
         'time_unavailable',
-        'user_id'
+        'status',
+        'user_id',
     ];
 
     public function schedules()

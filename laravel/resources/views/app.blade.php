@@ -6,6 +6,7 @@
     <title>School Timetable App</title>
 
     <!-- Vite: Loads our CSS/JS bundle (Vue + Router) -->
+    @routes
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body>

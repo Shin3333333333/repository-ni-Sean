@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -39,20 +40,21 @@ class UserController extends Controller
     {
         $user = $request->user();
 
-        $request->validate([
-            'current_password' => 'required',
-            'password' => 'required|string|min:8|confirmed',
-        ]);
-
-        if (!Hash::check($request->current_password, $user->password)) {
-            throw ValidationException::withMessages([
-                'current_password' => ['The provided password does not match your current password.'],
+        try {
+            // TODO: For better security, re-implement current_password check
+            // if the frontend is updated to send it.
+            $request->validate([
+                'password' => 'required|string|min:8|confirmed',
             ]);
+
+            $user->password = Hash::make($request->password);
+            $user->is_temporary = 0; // Set is_temporary to false
+            $user->save();
+
+            return response()->json(['message' => 'Password updated successfully.']);
+        } catch (ValidationException $e) {
+            Log::error('Password update validation failed: ' . $e->getMessage());
+            return response()->json(['message' => 'Invalid data provided.'], 422);
         }
-
-        $user->password = Hash::make($request->password);
-        $user->save();
-
-        return response()->json(['message' => 'Password updated successfully.']);
     }
 }

@@ -18,8 +18,8 @@ class LoginController extends Controller
             'password' => 'required|string',
         ]);
 
-        // Find user by email
-        $user = User::where('email', $request->email)->first();
+        // Find user by email and eager load the account type
+        $user = User::with('type')->where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
@@ -36,7 +36,9 @@ class LoginController extends Controller
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
-                'email' => $user->email
+                'email' => $user->email,
+                'user_type' => $user->type ? strtolower($user->type->name) : null,
+                'is_temporary' => $user->is_temporary == 1
             ]
         ]);
     }

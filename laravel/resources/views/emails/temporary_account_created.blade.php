@@ -1,7 +1,7 @@
 @component('mail::message')
 # Temporary Account Created
 
-Hello {{ $user->name }},
+Hello New Faculty,
 
 A temporary account has been created for you. Here are your login details:
 

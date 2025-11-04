@@ -1,4 +1,4 @@
-make <?php
+<?php
 
 namespace App\Http\Controllers;
 
@@ -15,6 +15,15 @@ class ProfessorsController extends Controller
     public function index()
     {
         return response()->json(Professor::all());
+    }
+
+    public function show($id)
+    {
+        $professor = Professor::find($id);
+        if (!$professor) {
+            return response()->json(['message' => 'Professor not found'], 404);
+        }
+        return response()->json($professor);
     }
 
     /**
@@ -73,12 +82,25 @@ class ProfessorsController extends Controller
             $data['time_unavailable'] = $this->normalizeTimeUnavailable($tu);
         }
 
+        $password = Str::random(10);
+        $user = User::create([
+            'name' => $data['name'],
+            'email' => strtolower(str_replace(' ', '.', $data['name'])) . '@school.scheduler',
+            'password' => Hash::make($password),
+            'is_temporary' => 1,
+            'type_id' => 2,
+        ]);
+
+        $data['user_id'] = $user->id;
+
         $professor = Professor::create($data);
 
+        // TODO: Send email with temporary password
+
         return response()->json([
-                'data' => $professor,
-                'message' => 'Professor created successfully'
-            ], 201);
+            'data' => $professor,
+            'message' => 'Professor created successfully'
+        ], 201);
     }
 
     public function createTemporaryAccount(Request $request)
@@ -99,6 +121,7 @@ class ProfessorsController extends Controller
             'email' => $request->email,
             'password' => Hash::make($password),
             'type_id' => 2,
+            'is_temporary' => 1,
         ]);
 
         Professor::create([
@@ -135,6 +158,11 @@ class ProfessorsController extends Controller
         }
 
         $professor->update($data);
+
+        // Also update the associated user's name
+        if ($professor->user) {
+            $professor->user->update(['name' => $data['name']]);
+        }
 
         return response()->json(['data' => $professor]);
     }

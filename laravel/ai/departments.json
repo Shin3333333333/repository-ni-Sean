@@ -1,0 +1,247 @@
+{
+    "information technology": {
+        "name": "Information Technology",
+        "keywords": [
+            "SOFTWARE",
+            "COMPUTER",
+            "PROGRAMMING",
+            "IT",
+            "ALGORITHMS",
+            "DATA SCIENCE",
+            "CYBERSECURITY",
+            "NETWORKING",
+            "WEB DEVELOPMENT",
+            "INFORMATION SYSTEMS",
+            "TECHNOLOGY"
+        ],
+        "prefixes": [
+            "ITP",
+            "IT",
+            "ITC",
+            "CS",
+            "COMP"
+        ]
+    },
+    "accounting": {
+        "name": "Accounting",
+        "keywords": [
+            "ACCOUNTING",
+            "FINANCE",
+            "AUDITING",
+            "BOOKKEEPING",
+            "TAXATION",
+            "FINANCIAL"
+        ],
+        "prefixes": [
+            "ACC",
+            "ACE",
+            "FIN"
+        ]
+    },
+    "marketing": {
+        "name": "Marketing",
+        "keywords": [
+            "MARKETING",
+            "ADVERTISING",
+            "SALES",
+            "DIGITAL MARKETING",
+            "BRAND MANAGEMENT",
+            "CONSUMER BEHAVIOR"
+        ],
+        "prefixes": [
+            "MKT",
+            "MM"
+        ]
+    },
+    "entrepreneurship": {
+        "name": "Entrepreneurship",
+        "keywords": [
+            "ENTREPRENEUR",
+            "BUSINESS PLAN",
+            "STARTUP",
+            "INNOVATION",
+            "VENTURE"
+        ],
+        "prefixes": [
+            "ENT",
+            "EN",
+            "ENE",
+            "ENS",
+            "ENC"
+        ]
+    },
+    "business administration": {
+        "name": "Business Administration",
+        "keywords": [
+            "BUSINESS",
+            "MANAGEMENT",
+            "OPERATIONS",
+            "HUMAN RESOURCE",
+            "HRM",
+            "LOGISTICS"
+        ],
+        "prefixes": [
+            "BA",
+            "BUS",
+            "MGT",
+            "HR"
+        ]
+    },
+    "hospitality management": {
+        "name": "Hospitality Management",
+        "keywords": [
+            "HOSPITALITY",
+            "HOTEL",
+            "RESTAURANT",
+            "TOURISM",
+            "HRM"
+        ],
+        "prefixes": [
+            "HM",
+            "HRM"
+        ]
+    },
+    "tourism management": {
+        "name": "Tourism Management",
+        "keywords": [
+            "TOURISM",
+            "TRAVEL",
+            "HOSPITALITY"
+        ],
+        "prefixes": [
+            "TM",
+            "TOUR"
+        ]
+    },
+    "engineering": {
+        "name": "Engineering",
+        "keywords": [
+            "ENGINEERING",
+            "CIVIL",
+            "MECHANICAL",
+            "ELECTRICAL",
+            "CHEMICAL",
+            "INDUSTRIAL"
+        ],
+        "prefixes": [
+            "ENGR",
+            "CE",
+            "ME",
+            "EE",
+            "CHE",
+            "IE"
+        ]
+    },
+    "psychology": {
+        "name": "Psychology",
+        "keywords": [
+            "PSYCHOLOGY",
+            "BEHAVIORAL",
+            "COUNSELING",
+            "MENTAL HEALTH"
+        ],
+        "prefixes": [
+            "PSY",
+            "PSYC"
+        ]
+    },
+    "education": {
+        "name": "Education",
+        "keywords": [
+            "EDUCATION",
+            "TEACHING",
+            "PEDAGOGY",
+            "CURRICULUM"
+        ],
+        "prefixes": [
+            "EDUC",
+            "ED"
+        ]
+    },
+    "architecture": {
+        "name": "Architecture",
+        "keywords": [
+            "ARCHITECTURE",
+            "DESIGN",
+            "BUILDING",
+            "PLANNING"
+        ],
+        "prefixes": [
+            "ARCH",
+            "AR"
+        ]
+    },
+    "communication": {
+        "name": "Communication",
+        "keywords": [
+            "COMMUNICATION",
+            "MEDIA",
+            "JOURNALISM",
+            "BROADCASTING"
+        ],
+        "prefixes": [
+            "COMM"
+        ]
+    },
+    "physical education": {
+        "name": "Physical Education",
+        "keywords": [
+            "PE",
+            "PHYSICAL EDUCATION",
+            "SPORT",
+            "HEALTH",
+            "FITNESS",
+            "WELLNESS"
+        ],
+        "prefixes": [
+            "PE",
+            "PED"
+        ]
+    },
+    "nstp": {
+        "name": "NSTP",
+        "keywords": [
+            "NSTP",
+            "NATIONAL SERVICE TRAINING PROGRAM"
+        ],
+        "prefixes": [
+            "NSTP"
+        ]
+    },
+    "general education": {
+        "name": "General Education",
+        "keywords": [
+            "MATH",
+            "MATHEMATICS",
+            "HUMANITIES",
+            "PHILOSOPHY",
+            "SELF",
+            "WORLD",
+            "ETHICS",
+            "SCIENCE",
+            "ARTS",
+            "SOCIAL STUDIES",
+            "HISTORY",
+            "RIZAL",
+            "FILIPINO",
+            "LITERATURE",
+            "PHYSICS",
+            "CHEMISTRY",
+            "BIOLOGY",
+            "PURPOSIVE COMMUNICATION",
+            "CONTEMPORARY WORLD"
+        ],
+        "prefixes": [
+            "GE",
+            "GEE",
+            "MATH",
+            "FIL",
+            "LIT",
+            "SCI",
+            "SS",
+            "HIST",
+            "PHILO",
+            "ART"
+        ]
+    }
+}

@@ -33,7 +33,6 @@
         "vue-tsc": "^2.2.4"
     },
     "dependencies": {
-        "@inertiajs/vue3": "^2.1.0",
         "@vueuse/core": "^12.8.2",
         "axios": "^1.12.2",
         "chart.js": "^4.5.0",
