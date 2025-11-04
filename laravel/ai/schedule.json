@@ -1,0 +1,16 @@
+[
+  {
+    "course": "BSIT 1-11",
+    "subject": "Introduction to Computing",
+    "faculty": "Sean",
+    "room": "102",
+    "time": "Mon 6-9"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Purposive Communication",
+    "faculty": "Conrad",
+    "room": "102",
+    "time": "Mon 3-5"
+  }
+]

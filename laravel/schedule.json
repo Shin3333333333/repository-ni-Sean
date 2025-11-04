@@ -1,0 +1,156 @@
+[
+  {
+    "course": "BSIT 1-11",
+    "subject": "Introduction to Computing",
+    "faculty": "Sean",
+    "room": "102",
+    "time": "Sat 12-15"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Purposive Communication",
+    "faculty": "calip",
+    "room": "102",
+    "time": "Mon 18-21"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Computer Programming 1",
+    "faculty": "Sean",
+    "room": "104",
+    "time": "Fri 13-16"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Understanding the Self",
+    "faculty": "Prof. Essor",
+    "room": "102",
+    "time": "Tue 13-16"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Data Structures & Algorithms",
+    "faculty": "Conrad",
+    "room": "104",
+    "time": "Mon 6-9"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Database Management Systems",
+    "faculty": "calip",
+    "room": "102",
+    "time": "Mon 13-16"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Web Development",
+    "faculty": "Conrad",
+    "room": "102",
+    "time": "Fri 6-9"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Mobile App Development",
+    "faculty": "Sean",
+    "room": "102",
+    "time": "Tue 18-21"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Capstone Project 1",
+    "faculty": "Prof. Essor",
+    "room": "102",
+    "time": "Wed 6-9"
+  },
+  {
+    "course": "BSIT 1-11",
+    "subject": "Capstone Project 2",
+    "faculty": "Prof. Essor",
+    "room": "104",
+    "time": "Thu 6-9"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Fundamentals of Accounting",
+    "faculty": "calip",
+    "room": "102",
+    "time": "Sat 18-21"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Purposive Communication",
+    "faculty": "Sean",
+    "room": "104",
+    "time": "Tue 6-9"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Understanding the Self",
+    "faculty": "Sean",
+    "room": "104",
+    "time": "Wed 6-9"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Business Mathematics",
+    "faculty": "Conrad",
+    "room": "104",
+    "time": "Sat 13-16"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Financial Accounting and Reporting",
+    "faculty": "Conrad",
+    "room": "104",
+    "time": "Fri 18-21"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Cost Accounting and Control",
+    "faculty": "Conrad",
+    "room": "102",
+    "time": "Wed 18-21"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Ethics",
+    "faculty": "Prof. Essor",
+    "room": "104",
+    "time": "Thu 13-16"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Auditing Theory",
+    "faculty": "calip",
+    "room": "104",
+    "time": "Sat 6-9"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Management Advisory Services",
+    "faculty": "Prof. Essor",
+    "room": "102",
+    "time": "Fri 13-16"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Accounting Information Systems",
+    "faculty": "Prof. Essor",
+    "room": "104",
+    "time": "Fri 6-9"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Business Law and Taxation",
+    "faculty": "Sean",
+    "room": "104",
+    "time": "Wed 18-21"
+  },
+  {
+    "course": "BSA 1-11",
+    "subject": "Capstone Project in Accounting Systems",
+    "faculty": "Conrad",
+    "room": "102",
+    "time": "Wed 13-16"
+  }
+]
