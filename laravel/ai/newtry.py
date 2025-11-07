@@ -1,5 +1,4 @@
 # fixed_scheduler_load_balanced_debug_with_unassigned_and_force.py
-import mysql.connector
 from ortools.sat.python import cp_model
 import re
 import json
@@ -55,16 +54,6 @@ def is_time_conflict(parsed_unavail_ranges, slot_label, buffer_minutes=60, slot_
             return True
     return False
 
-import mysql.connector
-from ortools.sat.python import cp_model
-import re
-import json
-import sys
-import argparse
-from collections import defaultdict
-import heapq
-import itertools
-
 def infer_subject_department(subj, department_prefix_map, department_info):
     subj_code = (subj.get('subject_code') or '').upper()
     subj_title = (subj.get('subject_title') or '').upper()
@@ -82,28 +71,23 @@ def infer_subject_department(subj, department_prefix_map, department_info):
     
     return None, None
 
-def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=120, search_workers=4):
+def generate_schedule(academic_year=None, semester_id=None, json_payload=None, max_solve_seconds=120, search_workers=4):
     import sys
     import argparse
 
     # Only parse CLI args if this is run as main
     
     # -----------------------------
-    # DATABASE CONNECTION
+    # LOAD DATA FROM JSON PAYLOAD
     # -----------------------------
-    db = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",  # update if needed
-        database="school_scheduler"
-    )
-    cursor = db.cursor(dictionary=True)
+    if json_payload is None:
+        print("[ERROR] No JSON payload provided.", file=sys.stderr)
+        return {"success": False, "message": "No JSON data provided."}
 
     # -----------------------------
     # FETCH ANCILLARY DATA
     # -----------------------------
-    cursor.execute("SELECT * FROM rooms")
-    rooms_all = cursor.fetchall() or []
+    rooms_all = json_payload.get("rooms", [])
     for r in rooms_all:
         r['capacity'] = r.get('capacity') or r.get('max_load') or r.get('size') or None
         r['status'] = (r.get('status') or "").lower()
@@ -111,8 +95,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
     room_by_id = {r['id']: r for r in rooms}
     
     
-    cursor.execute("SELECT * FROM professors")
-    faculty_all = cursor.fetchall() or []
+    faculty_all = json_payload.get("faculty", [])
     for f in faculty_all:
         f['status'] = (f.get('status') or "").lower()
         f['time_unavailable'] = f.get('time_unavailable') or f.get('unavailable') or None
@@ -124,8 +107,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
     faculty_by_id = {f['id']: f for f in faculty}
 
 
-    cursor.execute("SELECT id, name, year FROM courses")
-    courses = cursor.fetchall() or []
+    courses = json_payload.get("courses", [])
     course_by_id = {c.get('id'): c for c in courses}
 
     # -----------------------------
@@ -190,66 +172,30 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
 
     # Quick check: return empty if semester has no subjects
     if semester_id is not None:
-        cursor.execute("SELECT COUNT(*) AS cnt FROM subjects WHERE semester_id=%s", (semester_id,))
-        subject_count = cursor.fetchone().get("cnt", 0)
-        if subject_count == 0:
+        subjects_rows = json_payload.get("subjects", [])
+        if not subjects_rows:
             print(f"[DEBUG] No subjects for semester_id {semester_id}, returning empty schedule.", file=sys.stderr)
-            curriculum_subjects = []
-            assigned = []
-            unassigned = []
-            conflicts = []
-            summary = {
-                "total_curriculum_subjects": 0,
-                "total_assigned": 0,
-                "total_unassigned": 0,
-                "assigned_ids": [],
-                "unassigned_ids": []
-            }
-            cursor.close()
-            db.close()
             return {
                 "success": True,
                 "message": "No subjects for this semester",
-                "schedule": assigned,
-                "unassigned": unassigned,
-                "summary": summary,
-                "conflicts": conflicts,
+                "schedule": [],
+                "unassigned": [],
+                "summary": {
+                    "total_curriculum_subjects": 0,
+                    "total_assigned": 0,
+                    "total_unassigned": 0,
+                    "assigned_ids": [],
+                    "unassigned_ids": []
+                },
+                "conflicts": [],
                 "force_assign_fn": lambda *a, **k: {"error": "force_assign_not_available"}
             }
 
     # FETCH SUBJECTS (filtered by semester + course year)
     # -----------------------------
-    subject_query = """
-        SELECT 
-            s.id AS subject_id,
-            s.subject_title,
-            s.subject_code,
-            s.course_id,
-            s.year_level,
-            s.semester_id,
-            s.lec_units,
-s.lab_units,
-            s.total_units,
-            c.name AS course_name,
-            c.year AS course_year,
-            f.name AS faculty_name
-        FROM subjects s
-        INNER JOIN courses c ON s.course_id = c.id
-        LEFT JOIN professors f ON f.department = c.name
-        WHERE s.semester_id = %s
-        AND s.course_id IS NOT NULL
-    """
-    params = [semester_id]
-
-    cursor.execute(subject_query, params)
-    subjects_rows = cursor.fetchall() or []
+    subjects_rows = json_payload.get("subjects", [])
 
     print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id and semester_id={semester_id}", file=sys.stderr)
-    
-    # Additional debug: Check total subjects in database for comparison
-    cursor.execute("SELECT COUNT(*) AS cnt FROM subjects WHERE semester_id=%s AND course_id IS NOT NULL", (semester_id,))
-    total_in_db = cursor.fetchone().get("cnt", 0)
-    print(f"[DEBUG] Total subjects in database with semester_id={semester_id} and course_id IS NOT NULL: {total_in_db}", file=sys.stderr)
 
     # Normalize subjects as before
     subjects = []
@@ -357,41 +303,21 @@ s.lab_units,
     # -----------------------------
     # Hybrid subject department inference
     # -----------------------------
-    department_info = {}
+    department_info = json_payload.get("departments", {})
     department_prefix_map = {}
-    try:
-        cursor.execute("SELECT name, keywords, prefixes FROM departments")
-        departments_data = cursor.fetchall() or []
-        
-        for d in departments_data:
-            dept_name = d.get('name')
-            if not dept_name:
-                continue
-            
-            lower_dept_name = dept_name.lower()
-            department_info[lower_dept_name] = {
-                'name': dept_name,
-                'keywords': [kw.strip().upper() for kw in (d.get('keywords') or '').split(',') if kw.strip()],
-                'prefixes': [p.strip().upper() for p in (d.get('prefixes') or '').split(',') if p.strip()]
-            }
-        
-        for lower_dept_name, info in department_info.items():
-            for prefix in info['prefixes']:
-                department_prefix_map[prefix] = info['name']
+    # The `departments.json` file has department names as keys.
+    # We iterate through them to build a prefix map for quick lookups.
+    for lower_dept_name, info in department_info.items():
+        # Ensure prefixes is a list before iterating
+        prefixes = info.get('prefixes', [])
+        if prefixes:
+            for prefix in prefixes:
+                department_prefix_map[prefix] = info.get('name')
 
-        if not department_info:
-            print("[WARNING] No department data found in database. Department-based scoring will be limited.", file=sys.stderr)
-        else:
-            print(f"[DEBUG] Loaded {len(department_info)} departments from database.", file=sys.stderr)
-
-    except Exception as e:
-        print(f"[WARNING] Could not load departments from DB, using hardcoded fallbacks. Reason: {e}", file=sys.stderr)
-        with open('departments.json', 'r') as f:
-            department_info = json.load(f)
-        department_prefix_map = {}
-        for lower_dept_name, info in department_info.items():
-            for prefix in info['prefixes']:
-                department_prefix_map[prefix] = info['name']
+    if not department_info:
+        print("[WARNING] No department data found in the JSON payload. Department-based scoring will be limited.", file=sys.stderr)
+    else:
+        print(f"[DEBUG] Loaded {len(department_info)} departments from the JSON payload.", file=sys.stderr)
 
 
     # Step 1: infer departments for all subjects
@@ -1067,15 +993,14 @@ s.lab_units,
     # -----------------------------
     # FETCH COURSE SECTIONS FOR LOOKUP
     # -----------------------------
+    # course_lookup is redundant, course_by_id is already defined and used.
+    # This block is maintained for compatibility but should be reviewed for removal.
     try:
-        # ✅ Use only existing columns
-        cursor.execute("SELECT id, name, year, curriculum_id FROM courses")
-        courses_all = cursor.fetchall() or []
-        course_lookup = {c["id"]: c for c in courses_all}
-        print(f"[DEBUG] Loaded {len(courses_all)} courses", file=sys.stderr)
-        print(f"[DEBUG] Loaded {len(course_lookup)} courses for section lookup.", file=sys.stderr)
+        course_lookup = {c.get("id"): c for c in courses if c.get("id")}
+        print(f"[DEBUG] Loaded {len(courses)} courses for section lookup.", file=sys.stderr)
     except Exception as e:
-        print(f"[ERROR] Could not fetch course data: {e}", file=sys.stderr)
+        print(f"[ERROR] Could not fetch course data for lookup: {e}", file=sys.stderr)
+        # print(traceback.format_exc(), file=sys.stderr) # Too verbose for this non-critical error
         course_lookup = {}
 
     # Precompute parsed slot info once to avoid repeated parsing
@@ -1237,17 +1162,19 @@ if __name__ == "__main__":
     import json, sys, argparse, traceback
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--academic_year", type=str, default=None)
-    parser.add_argument("--semester", type=str, default=None)  # can be '1', '2', '1st Semester', etc.
+    parser.add_argument("--file", type=str, required=True, help="Path to the JSON payload file.")
     args = parser.parse_args()
 
-    academic_year = args.academic_year
-    semester_id = args.semester  # keep as str or int
-
     try:
-        out = generate_schedule(academic_year=academic_year, semester_id=semester_id)
+        with open(args.file, 'r') as f:
+            json_payload = json.load(f)
+        
+        academic_year = json_payload.get("academic_year")
+        semester_id = json_payload.get("semester_id")
+
+        out = generate_schedule(academic_year=academic_year, semester_id=semester_id, json_payload=json_payload)
         out_for_json = {k: v for k, v in out.items() if k != "force_assign_fn"}
-        print(json.dumps(out_for_json, ensure_ascii=False, separators=(',', ':')))
+        print(json.dumps(out_for_json, ensure_ascii=False, separators=(",", ":")))
     except Exception as e:
         output = {"success": False, "message": str(e), "trace": traceback.format_exc()}
         print(json.dumps(output, ensure_ascii=False, indent=2))

@@ -2,6 +2,11 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\File;
+use App\Models\Subject;
+
+Route::get('/test-db', function () {
+    return response()->json(['subject_count' => Subject::count()]);
+});
 
 Route::get('/departments', function () {
     $path = base_path('ai/departments.json');
@@ -93,7 +98,7 @@ Route::get('/schedule/data', function () {
     ]);
 });
 
-Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule'])->middleware('auth:sanctum', 'role:admin');
+Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
 Route::post('/save-schedule', [PendingScheduleController::class, 'store'])->middleware('auth:sanctum');
 Route::get('/pending-schedules', [PendingScheduleController::class, 'index']);
 Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'show']);
