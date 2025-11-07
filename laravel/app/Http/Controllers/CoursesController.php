@@ -24,7 +24,6 @@ public function store(Request $request)
     $validated = $request->validate([
         'name' => 'required|string|max:255',
         'year' => 'required|string|max:50',
-        'students' => 'required|integer|min:1',
         'curriculum_id' => 'nullable|integer|exists:curriculums,id',
     ]);
 
@@ -91,7 +90,6 @@ public function store(Request $request)
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'year' => 'sometimes|string|max:50',
-            'students' => 'sometimes|integer|min:1',
             'curriculum_id' => 'nullable|integer|exists:curriculums,id',
             'subjects' => 'nullable|array'
         ]);
@@ -106,15 +104,21 @@ public function store(Request $request)
         $curriculumChanged = $course->curriculum_id && ($course->curriculum_id != $oldCurriculumId);
         $yearChanged = isset($validated['year']) && ($validated['year'] !== $oldYear);
 
-        // If subjects are included, update existing ones (only safe fields)
-        if (!empty($validated['subjects'])) {
+        // If subjects are included, sync them
+        if (isset($validated['subjects'])) {
+            $subjectIds = collect($validated['subjects'])->pluck('id')->filter()->all();
+
+            // Delete subjects that are not in the incoming list
+            Subject::where('course_id', $course->id)->whereNotIn('id', $subjectIds)->delete();
+
+            // Update existing subjects
             foreach ($validated['subjects'] as $subjectData) {
                 if (isset($subjectData['id'])) {
                     $updateData = $subjectData;
-                    unset($updateData['id']);
+                    unset($updateData['id']); // Avoid updating the primary key
                     Subject::where('id', $subjectData['id'])
-                        ->where('course_id', $course->id)
-                        ->update($updateData);
+                           ->where('course_id', $course->id)
+                           ->update($updateData);
                 }
             }
         }

@@ -13,13 +13,23 @@
 <script>
 import CreatePanel from "./panels/CreatePanel.vue";
 import PendingPanel from "./panels/PendingPanel.vue";
+import emitter from "../../../eventBus";
 
 export default {
   components: { CreatePanel, PendingPanel },
   data() {
     return { currentView: "create" };
   },
+  mounted() {
+    emitter.on('schedule-created', this.switchToPending);
+  },
+  beforeUnmount() {
+    emitter.off('schedule-created', this.switchToPending);
+  },
   methods: {
+    switchToPending() {
+      this.currentView = 'pending';
+    },
     onSwitch(target) {
       if (target === this.currentView) return;
       // If leaving Create, show CreatePanel's leave prompt if unsaved

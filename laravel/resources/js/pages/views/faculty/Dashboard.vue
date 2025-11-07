@@ -101,6 +101,7 @@
 <script>
 import axios from '@/axios';
 import * as XLSX from 'xlsx';
+import emitter from '@/eventBus';
 
 export default {
   name: 'FacultyDashboard',
@@ -115,6 +116,12 @@ export default {
   },
   async created() {
     await this.fetchSchedule();
+  },
+  mounted() {
+    emitter.on('schedule-updated', this.fetchSchedule);
+  },
+  beforeUnmount() {
+    emitter.off('schedule-updated', this.fetchSchedule);
   },
   methods: {
     async fetchSchedule() {

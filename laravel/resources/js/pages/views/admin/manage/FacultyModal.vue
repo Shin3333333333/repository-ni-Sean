@@ -29,7 +29,7 @@
 
         <div class="form-group col-6">
           <label>Max Load:</label>
-          <input v-model.number="localForm.maxLoad" type="number" min="1" required />
+          <input v-model.number="localForm.max_load" type="number" min="1" required />
         </div>
 
         <div class="form-group col-6">
@@ -137,6 +137,7 @@
 <script>
 import api from "@/axios";
 import departmentsData from "@ai/departments.json";
+import { useToast } from '../../../../composables/useToast';
 import { useLoading } from '../../../../composables/useLoading'; // ✅ import // ✅ import
 
 export default {
@@ -150,7 +151,8 @@ export default {
   },
   setup() {
     const { show: showLoading, hide: hideLoading } = useLoading();
-    return { showLoading, hideLoading };
+    const { success, error } = useToast();
+    return { showLoading, hideLoading, success, error };
   },
 
   data() {
@@ -204,7 +206,7 @@ export default {
             name: this.form?.name || "",
             type: this.form?.type || "",
             department: this.form?.department || "",
-            maxLoad: Number(this.form?.max_load ?? this.form?.maxLoad ?? 1),
+            max_load: Number(this.form?.max_load ?? 1),
             status: this.form?.status || "Active",
             unavailableTimes: normalized,
           };
@@ -233,7 +235,6 @@ export default {
       
       const items = timeString.split(",").map(t => t.trim());
       return items.map(item => {
-        // Check if it's whole day format (just day name)
         const dayMatch = item.match(/^(\w+)$/);
         if (dayMatch) {
           const dayName = dayMatch[1];
@@ -248,7 +249,6 @@ export default {
           };
         }
         
-        // Check if it's time range format (day + time)
         const timeMatch = item.match(/^(\w+)\s+(\d{2}:\d{2})–(\d{2}:\d{2})$/);
         if (timeMatch) {
           const [, dayName, start, end] = timeMatch;
@@ -270,14 +270,17 @@ export default {
 
     // Ensure items have required fields and defaults
     normalizeUnavailableItems(items) {
-      return (items || []).map(it => ({
-        dayValue: it.dayValue,
-        dayName: it.dayName ?? this.getDayName(it.dayValue),
-        isWholeDay: !!it.isWholeDay,
-        useSpecific: it.useSpecific ?? !it.isWholeDay,
-        start: it.isWholeDay ? '01:00' : (it.start || '08:00'),
-        end: it.isWholeDay ? '24:00' : (it.end || '17:00'),
-      }));
+      return (items || []).map(it => {
+        const isWholeDay = it.useSpecific === false ? true : !!it.isWholeDay;
+        return {
+          dayValue: it.dayValue,
+          dayName: it.dayName ?? this.getDayName(it.dayValue),
+          isWholeDay: isWholeDay,
+          useSpecific: !isWholeDay,
+          start: isWholeDay ? '01:00' : (it.start || '08:00'),
+          end: isWholeDay ? '24:00' : (it.end || '17:00'),
+        };
+      });
     },
     
     // Get day value from day name
@@ -316,16 +319,13 @@ export default {
     
     // Toggle day selection
     toggleDay(dayValue) {
+      const dayName = this.getDayName(dayValue);
       if (this.selectedDays.includes(dayValue)) {
-        // Remove day and its entry
         this.selectedDays = this.selectedDays.filter(d => d !== dayValue);
         this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
         this.localForm.unavailableTimes = this.localForm.unavailableTimes.filter(it => it.dayValue !== dayValue);
       } else {
-        // Add day with default whole-day block 01:00-24:00
         this.selectedDays.push(dayValue);
-        this.wholeDayUnavailable.push(dayValue);
-        const dayName = this.getDayName(dayValue);
         this.localForm.unavailableTimes.push({
           dayValue,
           dayName,
@@ -344,7 +344,6 @@ export default {
       if (useSpecific) {
         item.isWholeDay = false;
         item.useSpecific = true;
-        // Keep existing times if already set, otherwise suggest a typical window
         item.start = item.start || '08:00';
         item.end = item.end || '17:00';
         this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
@@ -394,32 +393,52 @@ export default {
       if (!item) return;
       this.removeUnavailableByDay(item.dayValue);
     },
-    handleSubmit() {
+    async handleSubmit() {
+      this.showLoading();
       try {
-        // Format time unavailable data for API
         const timeUnavailableString = this.localForm.unavailableTimes
           .map(item => {
-            if (item.isWholeDay) return item.dayName;
-            return `${item.dayName} ${item.start}–${item.end}`;
+            const dayName = this.getDayName(item.dayValue);
+            
+            // Ensure start and end times are in HH:mm format
+            const formatTime = (time) => {
+                if (!time) return '00:00';
+                const parts = time.split(':');
+                const hour = parts[0].padStart(2, '0');
+                const minute = parts[1].padStart(2, '0');
+                return `${hour}:${minute}`;
+            };
+
+            const formattedStart = item.isWholeDay ? '01:00' : formatTime(item.start);
+            const formattedEnd = item.isWholeDay ? '24:00' : formatTime(item.end);
+
+            return `${dayName} ${formattedStart}–${formattedEnd}`;
           })
           .join(", ");
 
         const facultyData = {
-          ...this.localForm,
+          id: this.localForm.id,
+          name: this.localForm.name,
+          type: this.localForm.type,
+          department: this.localForm.department,
+          max_load: this.localForm.max_load,
+          status: this.localForm.status,
           time_unavailable: timeUnavailableString,
         };
 
         this.$emit("submit", facultyData);
+        this.success('Faculty saved successfully!');
         this.closeModal();
       } catch (err) {
-        console.error("Error preparing faculty data:", err);
-        alert("An error occurred while preparing the data.");
+        this.error('Failed to save faculty.');
+        console.error("Error submitting faculty form:", err);
+      } finally {
+        this.hideLoading();
       }
     },
   },
   computed: {
     perDayItems() {
-      // keep same order as selectedDays
       const map = new Map(this.localForm.unavailableTimes.map(it => [it.dayValue, it]));
       return this.selectedDays.map(dv => map.get(dv)).filter(Boolean);
     }

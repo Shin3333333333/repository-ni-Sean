@@ -365,6 +365,7 @@ import { useLoading } from "../../../../composables/useLoading";
 import { useToast } from "../../../../composables/useToast";
 import ConfirmModal from "../../../../components/ConfirmModal.vue";
 import draggable from "vuedraggable";
+import emitter from "../../../../eventBus";
 import "/resources/css/create.css";
 import api from "../../../../axios";
 
@@ -1335,6 +1336,7 @@ toMinutes(t) {
         const data = res.data;
         if (data.success) {
           this.showSuccess("✅ Batch deleted successfully!");
+          emitter.emit('schedule-updated');
           this.loadPendingSchedules(false);
           if (this.selectedBatch === this.deletingBatchId) this.selectedBatch = null;
         } else {
@@ -1998,12 +2000,12 @@ finalizeSchedule() {
 
     if (data.success) {
       this.showSuccess("✅ Schedule finalized successfully!");
+      emitter.emit('schedule-updated');
       this.pendingSchedules = [];
       this.loadPendingSchedules();
       this.showModal = false;
       this.editMode = false;
       this.selectedBatch = null;
-      window.dispatchEvent(new CustomEvent('schedule-updated'));
     } else {
       this.showError("❌ Failed to finalize schedule: " + (data.message || "Unknown error"));
     }
@@ -2051,6 +2053,7 @@ finalizeSchedule() {
         const data = res.data;
         if(data.success){
           this.showSuccess("✅ Changes saved successfully!");
+          emitter.emit('schedule-updated');
           await this.loadPendingSchedules();
           this.deletedIds = [];
           this.actionHistory = [];

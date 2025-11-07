@@ -118,13 +118,13 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
         f['time_unavailable'] = f.get('time_unavailable') or f.get('unavailable') or None
         f['is_full_time'] = (f.get('type') or "").lower() == "full-time"
 
-    faculty = [f for f in faculty_all if (f.get("status") in ("", "active", "available", None))]
+    faculty = [f for f in faculty_all if (f.get("status") in ("active", "available"))]
 
     # Create a lookup for faculty by ID for faster access
     faculty_by_id = {f['id']: f for f in faculty}
 
 
-    cursor.execute("SELECT * FROM courses")
+    cursor.execute("SELECT id, name, year FROM courses")
     courses = cursor.fetchall() or []
     course_by_id = {c.get('id'): c for c in courses}
 
@@ -156,7 +156,7 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
             if semester_id.isdigit():
                 semester_id = int(semester_id)
             else:
-                semester_map = {"1st Semester": 1, "2nd Semester": 2}
+                semester_map = {"1st Semester": 1, "2nd Semester": 2, "Summer": 3}
                 semester_id = semester_map.get(semester_id, None)
         elif isinstance(semester_id, int):
             pass  # already fine
@@ -164,11 +164,11 @@ def generate_schedule(academic_year=None, semester_id=None, max_solve_seconds=12
             semester_id = None
 
     # Only allow semester_id 1 and 2, reject others
-    if semester_id not in [1, 2]:
-        print(f"[ERROR] Invalid semester_id: {semester_id}. Only semester_id 1 and 2 are allowed.", file=sys.stderr)
+    if semester_id not in [1, 2, 3]:
+        print(f"[ERROR] Invalid semester_id: {semester_id}. Only semester_id 1, 2 and 3 are allowed.", file=sys.stderr)
         return {
             "success": False,
-            "message": f"Invalid semester_id: {semester_id}. Only semester_id 1 and 2 are allowed.",
+            "message": f"Invalid semester_id: {semester_id}. Only semester_id 1, 2 and 3 are allowed.",
             "schedule": [],
             "unassigned": [],
             "summary": {
@@ -461,7 +461,7 @@ s.lab_units,
         subj_code = (subj.get('subject_code') or '').upper()
         subj_title = (subj.get('subject_title') or '').upper()
         course_obj = course_by_id.get(subj.get('course_id'))
-        students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
+        students = 1
         lec_units_val = float(subj.get('lec_units', 0) or 0)
         lab_units_val = float(subj.get('lab_units', 0) or 0)
         subj_units = int(subj.get('units', 3))
@@ -496,7 +496,7 @@ s.lab_units,
         subj_code = (subj.get('subject_code') or '').upper()
         subj_title = (subj.get('subject_title') or '').upper()
         course_obj = course_by_id.get(subj.get('course_id'))
-        students = int((course_obj.get('students') if course_obj and course_obj.get('students') else 1) or 1)
+        students = 1
         lec_units_val = float(subj.get('lec_units', 0) or 0)
         lab_units_val = float(subj.get('lab_units', 0) or 0)
         subj_units = int(subj.get('units', 3))
@@ -1069,7 +1069,7 @@ s.lab_units,
     # -----------------------------
     try:
         # ✅ Use only existing columns
-        cursor.execute("SELECT id, name, year, students, curriculum_id FROM courses")
+        cursor.execute("SELECT id, name, year, curriculum_id FROM courses")
         courses_all = cursor.fetchall() or []
         course_lookup = {c["id"]: c for c in courses_all}
         print(f"[DEBUG] Loaded {len(courses_all)} courses", file=sys.stderr)

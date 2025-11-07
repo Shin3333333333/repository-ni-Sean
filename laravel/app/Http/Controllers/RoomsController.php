@@ -14,12 +14,11 @@ class RoomsController extends Controller
     public function store(Request $request) {
         $request->validate([
             'name' => 'required|string|max:255',
-            'capacity' => 'required|integer|min:1',
             'type' => 'required|string|max:255',
             'status' => 'required|string|in:Available,Unavailable',
         ]);
 
-        $room = Room::create($request->only(['name','capacity','type','status']));
+        $room = Room::create($request->only(['name','type','status']));
        return response()->json([
                 'data' => $room,
                 'message' => 'Room created successfully'
@@ -48,13 +47,12 @@ public function update(Request $request, $id)
 {
     $request->validate([
         'name' => 'required|string|max:255',
-        'capacity' => 'required|integer|min:1',
         'type' => 'required|string|max:255',
         'status' => 'required|string|in:Available,Unavailable',
     ]);
 
     $room = Room::findOrFail($id);
-    $room->update($request->only(['name', 'capacity', 'type', 'status']));
+    $room->update($request->only(['name', 'type', 'status']));
 
     return response()->json([
         'data' => $room,

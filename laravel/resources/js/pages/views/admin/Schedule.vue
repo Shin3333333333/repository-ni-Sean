@@ -238,7 +238,26 @@ export default {
     this.loadArchives();
     this.fetchProfessors();
   },
+  mounted() {
+    emitter.on('schedule-updated', this.refreshData);
+    emitter.on('schedule-created', this.refreshData);
+  },
+  beforeUnmount() {
+    emitter.off('schedule-updated', this.refreshData);
+    emitter.off('schedule-created', this.refreshData);
+  },
   methods: {
+    async refreshData() {
+      await this.loadLatestSchedule();
+      await this.fetchActiveScheduleInfo();
+      await this.loadArchives();
+    },
+
+    onAcademicYearChange() {
+      this.loadLatestSchedule();
+      this.fetchActiveScheduleInfo();
+      this.loadArchives();
+    },
     onAcademicYearChange() {
       const availableSemesters = this.availableSchedules
         .filter(s => s.academicYear === this.selectedAcademicYear)
@@ -363,22 +382,24 @@ export default {
       return this.formatFacultyHeader(name);
     },
     async detectConflicts() {
-  this.showLoading();
-  try {
-    const payload = {
-      academic_year: this.selectedAcademicYear,
-      semester: this.selectedSemester,
-    };
-    const res = await axios.post('/detect-conflicts', payload);
-    const data = res.data;
-    if (data?.message) this.toastSuccess(data.message); else this.toastInfo('Conflict detection finished');
-    if (data.redirect) this.$router.push(data.redirect);
-  } catch (err) {
-    console.error(err);
-    this.toastError('Conflict detection failed');
-      } finally { this.hideLoading(); }
-}
-,
+      this.showLoading();
+      try {
+        const payload = {
+          academic_year: this.selectedAcademicYear,
+          semester: this.selectedSemester,
+        };
+        const res = await axios.post('/detect-conflicts', payload);
+        const data = res.data;
+        if (data?.message) this.toastSuccess(data.message); else this.toastInfo('Conflict detection finished');
+        emitter.emit('schedule-updated');
+        if (data.redirect) this.$router.push(data.redirect);
+      } catch (err) {
+        console.error(err);
+        this.toastError('Conflict detection failed');
+      } finally {
+        this.hideLoading();
+      }
+    },
     async loadLatestSchedule() {
       this.showLoading();
       try {
@@ -530,11 +551,8 @@ export default {
 
         await axios.post('/set-active-schedule', payload);
         this.toastSuccess('Schedule has been set as active.');
-                emitter.emit('schedule-updated'); // Emit event
-                this.fetchActiveScheduleInfo();
-                this.loadArchives();
-                this.loadLatestSchedule();
-                this.showStageModal = false;
+        emitter.emit('schedule-updated'); // Emit event
+        this.showStageModal = false;
       } catch (err) {
         console.error('Failed to set active schedule', err);
         this.toastError(err.response?.data?.message || 'Failed to set active schedule.');
@@ -552,14 +570,9 @@ export default {
           academicYear: this.selectedAcademicYear,
           semester: this.selectedSemester,
         };
-        const res = await fetch(`/api/unset-active-schedule`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error("Failed to unset active schedule");
+        await axios.post(`/unset-active-schedule`, payload);
         this.toastSuccess("Active schedule has been deactivated");
-        this.fetchActiveScheduleInfo();
+        emitter.emit('schedule-updated');
       } catch (err) {
         console.error(err);
         this.toastError("Failed to deactivate active schedule");
@@ -608,8 +621,7 @@ export default {
           };
           await axios.post('/archive-batch', payload);
           this.toastSuccess('Current batch archived');
-          await this.loadLatestSchedule();
-          this.loadArchives();
+          emitter.emit('schedule-updated');
         } catch (err) {
           console.error(err);
           this.toastError(err.response?.data?.message || 'Failed to archive current batch');
@@ -625,8 +637,7 @@ export default {
         try {
           await axios.post(`/archives/${archive.academicYear}/${archive.semester}/${archive.batch_id}/restore`);
           this.toastSuccess(`Restored: ${archive.academicYear} – ${archive.semester}`);
-          this.loadLatestSchedule();
-          this.loadArchives();
+          emitter.emit('schedule-updated');
         } catch (err) {
           console.error('Failed to restore archive', err);
           this.toastError(err.response?.data?.message || 'Failed to restore archive.');
@@ -645,7 +656,7 @@ export default {
         try {
           await axios.delete(`/archives/${archive.academicYear}/${archive.semester}/${archive.batch_id}`);
           this.toastSuccess('Archive deleted.');
-          this.loadArchives();
+          emitter.emit('schedule-updated');
         } catch (err) {
           console.error('Failed to delete archive', err);
           this.toastError(err.response?.data?.message || 'Failed to delete archive.');

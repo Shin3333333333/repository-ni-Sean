@@ -95,6 +95,7 @@ import ConfirmModal from '../../../components/ConfirmModal.vue';
 import { useToast } from '../../../composables/useToast';
 import api from '~/axios';
 import { useLoading } from '../../../composables/useLoading';
+import emitter from '../../../eventBus';
 
 export default {
   name: "Manage",
@@ -178,6 +179,8 @@ export default {
       this.show();
       try {
         await this.loadCurriculums();
+        await this.loadCourses();
+        emitter.emit('curriculum-updated');
       } finally {
         this.hide();
       }
@@ -214,6 +217,7 @@ export default {
       this.success('Temporary account created successfully! The faculty member will receive an email with login instructions.');
       // Refresh faculty list
       this.loadAllData();
+      emitter.emit('faculty-updated');
     },
     addEntry() {
     if (this.activeTable === "faculty") {
@@ -223,7 +227,7 @@ export default {
         name: "",
         type: "Full-time",
         department: "",
-        maxLoad: 1,
+        max_load: 1,
         status: "Active",
         unavailableTimes: [],
       };
@@ -232,7 +236,7 @@ export default {
       this.roomForm = { name: "", capacity: 1, type: "", status: "Available" };
       this.showRoomModal = true;
     } else if (this.activeTable === "course") {
-      this.courseForm = { name: "", year: "", students: 1, curriculum_id: null, subjects: [] };
+      this.courseForm = { name: "", year: "", curriculum_id: null, subjects: [] };
       this.showCourseModal = true;
     }
   },
@@ -258,6 +262,15 @@ export default {
         this.courseList = courseRes.data.data || courseRes.data;
       } catch (err) {
         console.error("Failed to load data:", err);
+      }
+    },
+
+    async loadCourses() {
+      try {
+        const res = await api.get('/courses');
+        this.courseList = res.data.data || res.data;
+      } catch (err) {
+        console.error("Failed to load courses:", err);
       }
     },
 
@@ -293,6 +306,9 @@ export default {
         console.error("Upload failed:", err.response?.data || err);
       } finally {
         this.hide(); // hide loading
+        if (type === "course") {
+          this.showCourseModal = false;
+        }
       }
     },
 
@@ -320,14 +336,14 @@ export default {
             if (idx > -1) this.courseList.splice(idx, 1, updated);
           }
           this.courseForm = {};
-          this.showCourseModal = false;
+          emitter.emit('course-updated');
 
         } else if (type === "faculty") {
           const payload = {
             name: item.name,
             type: item.type,
             department: item.department,
-            max_load: item.maxLoad,
+            max_load: item.max_load,
             status: item.status,
             time_unavailable: item.time_unavailable,
           };
@@ -361,27 +377,33 @@ export default {
           }
 
           this.showFacultyModal = false;
+          emitter.emit('faculty-updated');
         } else if (type === "room") {
-  if (!item || typeof item !== 'object' || !item.id) {
-    console.warn("⚠️ Ignored invalid room data:", item);
-    return;
-  }
+          let res;
+          if (!item.id) {
+            res = await api.post("/rooms", item);
+          } else {
+            res = await api.put(`/rooms/${item.id}`, item);
+          }
 
-  // Find room in the current list
-  const idx = this.roomList.findIndex(r => r.id === item.id);
+          const data = res.data.data || res.data;
+          const room = {
+            id: data.id,
+            name: data.name,
+            type: data.type,
+            status: data.status,
+          };
 
-  if (idx !== -1) {
-    // ✅ Update existing room
-    this.roomList.splice(idx, 1, item);
-  } else {
-    // ✅ Add new room reactively
-    this.roomList = [...this.roomList, item];
-  }
+          const idx = this.roomList.findIndex(r => r.id === room.id);
+          if (idx === -1) {
+            this.roomList.push(room);
+          } else {
+            this.roomList.splice(idx, 1, room);
+          }
 
-  // Reset form + close modal
-  this.roomForm = {};
-  this.showRoomModal = false;
-}
+          this.showRoomModal = false;
+          emitter.emit('room-updated');
+        }
 
       } catch (err) {
         console.error(`Failed to update ${type}:`, err.response?.data || err);
@@ -448,6 +470,7 @@ export default {
           const idx = list.findIndex(e => e.id === item.id);
           if (idx > -1) list.splice(idx, 1);
           this.success('Deleted successfully');
+          emitter.emit(`${this.activeTable}-updated`);
         } catch (err) {
           console.error("Delete failed:", err);
           this.error('Delete failed');

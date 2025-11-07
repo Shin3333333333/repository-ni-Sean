@@ -24,6 +24,7 @@
 <script>
 import axios from '../../../../axios';
 import { useToast } from '../../../../composables/useToast';
+import { useLoading } from '../../../../composables/useLoading';
 
 export default {
   props: {
@@ -32,12 +33,13 @@ export default {
   emits: ['update:show', 'submit'],
   setup(props, { emit }) {
     const { success, error } = useToast();
+    const { show, hide } = useLoading();
 
     const close = () => {
       emit('update:show', false);
     };
 
-    return { close, success, error };
+    return { close, success, error, showLoading: show, hideLoading: hide };
   },
   data() {
     return {
@@ -46,6 +48,7 @@ export default {
   },
   methods: {
     async submitForm() {
+      this.showLoading();
       try {
         const response = await axios.post('/faculty/create-temporary-account', {
           email: this.email,
@@ -55,6 +58,8 @@ export default {
         this.close();
       } catch (err) {
         this.error(err.response?.data?.message || 'Failed to create account');
+      } finally {
+        this.hideLoading();
       }
     },
   },

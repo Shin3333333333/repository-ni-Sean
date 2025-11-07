@@ -34,11 +34,6 @@
           </div>
 
           <div class="form-group col-6">
-            <label>Number of Students:</label>
-            <input v-model.number="courseForm.students" type="number" min="1" required />
-          </div>
-
-          <div class="form-group col-6">
             <label>Curriculum:</label>
             <div class="grid-row gap-2">
               <!-- Dropdown always available -->
@@ -106,6 +101,7 @@
                   <th>LAB Units</th>
                   <th>Total Units</th>
                   <th>Pre-requisite</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,6 +115,7 @@
                   <td><input v-model.number="subject.lab_units" type="number" min="0" /></td>
                   <td><input v-model.number="subject.total_units" type="number" min="0" /></td> 
                   <td><input v-model="subject.pre_requisite" type="text" /></td>
+                  <td><button @click.prevent="removeSubject(index)" class="btn-sm btn-danger">Delete</button></td>
               
                 </tr>
               </tbody>
@@ -139,6 +136,9 @@
 </template>
 
 <script>
+import { useLoading } from '../../../../composables/useLoading';
+import { useToast } from '../../../../composables/useToast';
+
 export default {
   name: "CourseModal",
   props: {
@@ -148,6 +148,11 @@ export default {
     semesterList: Array,
   },
   emits: ["update:show", "update:courseForm", "submit", "upload"],
+  setup() {
+    const { show, hide } = useLoading();
+    const { success, error } = useToast();
+    return { showLoading: show, hideLoading: hide, success, error };
+  },
   data() {
     return {
       
@@ -314,14 +319,26 @@ export default {
     uploadCurriculum(event) {
       this.$emit("upload", event);
     },
+    removeSubject(index) {
+      this.courseForm.subjects.splice(index, 1);
+    },
     
-    addCourse() {
-      // Normalize year format before submission
-      if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
-        this.courseForm.year = `${this.courseForm.year} Year`;
+    async addCourse() {
+      this.showLoading();
+      try {
+        // Normalize year format before submission
+        if (this.courseForm.year && !this.courseForm.year.includes("Year")) {
+          this.courseForm.year = `${this.courseForm.year} Year`;
+        }
+        this.$emit("submit", this.courseForm);
+        this.success('Course saved successfully!');
+        this.$emit("update:show", false);
+      } catch (error) {
+        this.error('Failed to save course.');
+        console.error("Error adding course:", error);
+      } finally {
+        this.hideLoading();
       }
-      this.$emit("submit", this.courseForm);
-      this.$emit("update:show", false);
     },
   },
 };
@@ -405,6 +422,13 @@ export default {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.subject-table th:nth-child(6) { width: 15%; }
+
+.subject-table th:nth-child(7) { 
+  width: 15%; 
+  text-align: center;
+}
+
 .subject-table tbody tr:nth-child(odd) {
   background: #fcfdff;
 }
@@ -416,35 +440,10 @@ export default {
   border-radius: 8px;
 }
 
-/* Column Width Balancing */
-.subject-table th:nth-child(1),
-.subject-table td:nth-child(1) {
-  width: 10%; /* Code */
-}
-
-.subject-table th:nth-child(2),
-.subject-table td:nth-child(2) {
-  width: 40%; /* Title gets more space */
-  white-space: normal; /* allow wrapping if long */
-  word-wrap: break-word;
-}
-
-.subject-table th:nth-child(3),
 .subject-table td:nth-child(3),
-.subject-table th:nth-child(4),
-.subject-table td:nth-child(4) {
-  width: 10%; /* Units & Hours narrower */
-  text-align: center;
-}
-
-.subject-table th:nth-child(5),
+.subject-table td:nth-child(4),
 .subject-table td:nth-child(5) {
-  width: 20%; /* Pre-requisite */
-}
-
-.subject-table th:nth-child(6),
-.subject-table td:nth-child(6) {
-  width: 10%; /* Type */
+  text-align: center;
 }
 
 /* --- Buttons --- */
@@ -484,6 +483,17 @@ export default {
 .form-group select:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: .875rem;
+  border-radius: 0.2rem;
 }
 
 .fancy-select {

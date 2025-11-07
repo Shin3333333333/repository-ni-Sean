@@ -63,6 +63,7 @@
 
 <script>
 import { errorStore } from "../../../assets/errorStore";
+import emitter from "../../../eventBus";
 
 export default {
   name: "ErrorLog",
@@ -94,6 +95,14 @@ export default {
     this.academicYears.sort().reverse(); // Sort years in descending order
     this.selectedYear = this.academicYears.length > 0 ? this.academicYears[0] : null;
     this.selectedSemester = this.semesters.length > 0 ? this.semesters[0] : null;
+  },
+  mounted() {
+    emitter.on('schedule-updated', this.fetchErrors);
+    emitter.on('schedule-created', this.fetchErrors);
+  },
+  beforeUnmount() {
+    emitter.off('schedule-updated', this.fetchErrors);
+    emitter.off('schedule-created', this.fetchErrors);
   },
   methods: {
     async fetchErrors() {

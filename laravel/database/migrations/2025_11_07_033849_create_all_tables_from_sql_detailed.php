@@ -97,7 +97,6 @@ return new class extends Migration
         Schema::create('rooms', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->integer('capacity');
             $table->string('type');
             $table->engine = 'InnoDB';
             $table->charset = 'utf8mb4';

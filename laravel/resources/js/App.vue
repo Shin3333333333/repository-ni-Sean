@@ -97,6 +97,7 @@ import emitter from './eventBus';
 import profilepic from './assets/profilepic.png';
 import ToastContainer from './components/ToastContainer.vue';
 import LoadingModal from './components/LoadingModal.vue';
+import axios from './axios';
 
 export default {
   name: 'App',

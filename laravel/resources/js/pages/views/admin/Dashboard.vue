@@ -74,6 +74,7 @@ import { useLoading } from "../../../composables/useLoading";
 import Chart from "chart.js/auto";
 import { errorStore } from "../../../assets/errorStore";
 import api from '~/axios';
+import emitter from '../../../eventBus';
 
 export default {
   name: "Dashboard",
@@ -129,17 +130,30 @@ export default {
   async mounted() {
     this.showLoading();
     try {
-      await this.fetchActiveScheduleInfo();
-      await this.fetchProfessors();
-      await this.loadLatestForActive();
-      await this.$nextTick(); // Wait for DOM to be ready
-      this.renderFacultyCharts();
+      await this.refreshDashboardData();
       this.isMounted = true;
+      emitter.on('schedule-updated', this.refreshDashboardData);
     } finally {
       this.hideLoading();
     }
   },
+  beforeUnmount() {
+    emitter.off('schedule-updated', this.refreshDashboardData);},
   methods: {
+    async refreshDashboardData() {
+      this.showLoading();
+      try {
+        await this.fetchActiveScheduleInfo();
+        await this.fetchProfessors();
+        await this.loadLatestForActive();
+        await this.$nextTick();
+        this.renderFacultyCharts();
+      } catch (error) {
+        console.error("Error refreshing dashboard data:", error);
+      } finally {
+        this.hideLoading();
+      }
+    },
     async fetchProfessors() {
       try {
         const res = await api.get('/professors');
@@ -161,30 +175,21 @@ export default {
     },
     async loadLatestForActive() {
       try {
-        const res = await api.get(`/finalized-schedules`);
+        const res = await api.get(`/active-schedules`);
         const payload = res.data;
         const schedules = Array.isArray(payload) ? payload : payload.schedules || [];
 
-        let filtered = schedules;
-        if (this.activeAcademicYear && this.activeSemester) {
-          filtered = schedules.filter(
-            s => s.academicYear === this.activeAcademicYear && s.semester === this.activeSemester
-          );
-        }
-        if (!filtered.length) {
+        if (!schedules.length) {
           this.latestRows = [];
           this.updateDerivedStats();
           return;
         }
 
-        if (this.activeBatchId) {
-          this.latestRows = filtered.filter(s => s.batch_id === this.activeBatchId);
-          this.latestBatchId = this.activeBatchId;
-        } else {
-          const latestBatchId = filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0].batch_id;
-          this.latestBatchId = latestBatchId;
-          this.latestRows = filtered.filter(s => s.batch_id === latestBatchId);
-        }
+        // Since the backend now returns schedules only for the active batch,
+        // we can use them directly.
+        this.latestRows = schedules;
+        this.latestBatchId = schedules.length > 0 ? schedules[0].batch_id : null;
+
         this.updateDerivedStats();
       } catch (err) {
         console.error(err);
@@ -218,6 +223,13 @@ export default {
 
       try {
         const rows = this.latestRows || [];
+
+        // If no data, clear charts and show a message
+        if (rows.length === 0) {
+          this.fulltimeChart = this.renderChart('fulltimeChart', [], [], this.fulltimeChart);
+          this.parttimeChart = this.renderChart('parttimeChart', [], [], this.parttimeChart);
+          return;
+        }
 
         // Aggregate total units per faculty, separating by type
         const fulltimeLoadMap = new Map();

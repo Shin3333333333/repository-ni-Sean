@@ -30,8 +30,8 @@ class ScheduleController extends Controller
             Log::info("Received parameters → Academic Year: {$academicYear}, Semester: {$semester}");
 
             // Map semester string to ID
-            $semesterMap = ['1st Semester' => 1, '2nd Semester' => 2];
-            $semesterId = $semesterMap[$semester] ?? 1; // default to 1
+            $semesterMap = ['1st Semester' => 1, '2nd Semester' => 2, 'Summer' => 3];
+            $semesterId = $semesterMap[$semester] ?? $semester; // Pass as is if not in map
 
             // Define stderr log path BEFORE using it
             $stderrLog = storage_path('logs/scheduler_stderr.log');
@@ -70,6 +70,7 @@ class ScheduleController extends Controller
                 ], 500);
             }
 
+            Log::info("Scheduler stderr: " . file_get_contents($stderrLog));
             Log::info('Raw Python stdout (first 300 chars): ' . substr($output, 0, 300));
 
             // Clean invisible characters and BOM

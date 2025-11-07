@@ -7,17 +7,24 @@
       <input
         v-model="email"
         type="email"
-        class="password-input"
+        class="input-field"
         placeholder="Email"
       />
 
-      <input
-        v-model="password"
-        type="password"
-        class="password-input"
-        placeholder="••••••••"
-        @keyup.enter="checkPassword"
-      />
+      <div class="password-container">
+        <input
+          v-model="password"
+          :type="passwordFieldType"
+          class="input-field"
+          placeholder="••••••••"
+          @keyup.enter="checkPassword"
+        />
+        <i 
+          class="fa-regular eye-icon"
+          :class="[passwordFieldType === 'password' ? 'fa-eye-slash' : 'fa-eye']"
+          @click="togglePasswordVisibility"
+        ></i>
+      </div>
 
       <button class="login-btn" @click="checkPassword">Login</button>
 
@@ -36,6 +43,7 @@ export default {
       email: "",
       password: "",
       error: "",
+      passwordFieldType: "password",
     };
   },
   methods: {
@@ -85,11 +93,16 @@ export default {
         this.password = "";
       }
     },
+    togglePasswordVisibility() {
+      this.passwordFieldType = this.passwordFieldType === "password" ? "text" : "password";
+    },
   },
 };
 </script>
 
 <style scoped>
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css');
+
 .login-wrapper {
   width: 100%;
   min-height: 100vh;
@@ -100,7 +113,11 @@ export default {
 }
 
 .login-card {
-  width: 290px;
+  width: 350px; /* Bigger */
+  min-height: 450px; /* Taller */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   max-width: calc(100% - 40px);
   background: #efefef;
   border-radius: 22px;
@@ -121,7 +138,7 @@ export default {
   font-size: 15px;
 }
 
-.password-input {
+.input-field {
   width: 100%;
   padding: 14px;
   border-radius: 26px;
@@ -129,7 +146,27 @@ export default {
   outline: none;
   text-align: center;
   font-size: 15px;
+  border: 1px solid #ddd;
   margin-bottom: 18px;
+}
+
+.password-container {
+  position: relative;
+  width: 100%;
+  margin-bottom: 18px;
+}
+
+.password-container .input-field {
+  margin-bottom: 0;
+}
+
+.eye-icon {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  cursor: pointer;
+  color: #888;
 }
 
 .login-btn {

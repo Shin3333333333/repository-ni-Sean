@@ -7,10 +7,43 @@ use App\Models\ActiveSchedule;
 use Illuminate\Support\Carbon;
 use App\Models\FinalizedSchedule;
 use App\Models\ArchivedFinalizedSchedule;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class ActiveScheduleController extends Controller
 {
+    public function index()
+    {
+        try {
+            Log::info('Fetching active schedules...');
+            // Find the latest active schedule record
+            $activeScheduleInfo = ActiveSchedule::latest()->first();
+            Log::info('Active schedule info:', ['info' => $activeScheduleInfo ? $activeScheduleInfo->toArray() : null]);
+
+            if (!$activeScheduleInfo || !$activeScheduleInfo->batch_id) {
+                Log::info('No active schedule or batch_id found.');
+                // If no active schedule is found, return an empty array
+                return response()->json([]);
+            }
+
+            // Fetch all finalized schedules corresponding to the active batch_id
+            $schedules = FinalizedSchedule::where('batch_id', $activeScheduleInfo->batch_id)->get();
+            Log::info('Found schedules for batch_id: ' . $activeScheduleInfo->batch_id, ['count' => $schedules->count()]);
+
+            // Add academic_year and semester to each schedule
+            $schedulesWithExtraInfo = $schedules->map(function ($schedule) use ($activeScheduleInfo) {
+                $schedule->academic_year = $activeScheduleInfo->academicYear;
+                $schedule->semester = $activeScheduleInfo->semester;
+                return $schedule;
+            });
+
+            return response()->json($schedulesWithExtraInfo);
+        } catch (\Exception $e) {
+            Log::error('Error fetching active schedules: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['error' => 'An internal server error occurred.'], 500);
+        }
+    }
+
     // Get currently active schedule (normalized response)
     public function getActive()
     {

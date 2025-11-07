@@ -27,16 +27,16 @@
               <td>{{ formatDate(curr.created_at) }}</td>
               <td>
                 <template v-if="editId === curr.id">
-                  <button class="btn btn-primary" @click="save(curr)" :disabled="savingId === curr.id">{{ savingId === curr.id ? 'Saving...' : 'Save' }}</button>
-                  <button class="btn btn-cancel" @click="cancelEdit" :disabled="savingId === curr.id">Cancel</button>
+                  <button class="btn btn-primary" @click="save(curr)">Save</button>
+                  <button class="btn btn-cancel" @click="cancelEdit">Cancel</button>
                 </template>
                 <template v-else>
                   <button class="btn" @click="startEdit(curr)">Edit</button>
-                  <button class="btn delete" @click="remove(curr)" :disabled="deletingId === curr.id">{{ deletingId === curr.id ? 'Deleting...' : 'Delete' }}</button>
+                  <button class="btn delete" @click="remove(curr)">Delete</button>
                 </template>
               </td>
             </tr>
-            <tr v-if="!loading && curriculums.length === 0">
+            <tr v-if="curriculums.length === 0">
               <td colspan="3" style="text-align:center;color:#666">No curriculums found.</td>
             </tr>
           </tbody>
@@ -60,6 +60,7 @@
 import api from '../../../../axios';
 import ConfirmModal from '../../../../components/ConfirmModal.vue';
 import { useToast } from '../../../../composables/useToast';
+import { useLoading } from '../../../../composables/useLoading';
 
 export default {
   name: 'CurriculumListModal',
@@ -69,11 +70,8 @@ export default {
   data() {
     return {
       curriculums: [],
-      loading: false,
       editId: null,
       editName: '',
-      savingId: null,
-      deletingId: null,
       confirmOpen: false,
       confirmMessage: '',
       confirmAction: null,
@@ -81,7 +79,8 @@ export default {
   },
   setup() {
     const { success, error } = useToast();
-    return { success, error };
+    const { show, hide } = useLoading();
+    return { success, error, showLoading: show, hideLoading: hide };
   },
   watch: {
     show: {
@@ -93,7 +92,7 @@ export default {
   },
   methods: {
     async fetch() {
-      this.loading = true;
+      this.showLoading();
       try {
         const res = await api.get('/curriculums');
         const data = res.data && res.data.data !== undefined ? res.data.data : res.data;
@@ -102,7 +101,7 @@ export default {
         console.error('Failed to load curriculums', e);
         this.curriculums = [];
       } finally {
-        this.loading = false;
+        this.hideLoading();
       }
     },
     formatDate(d) {
@@ -124,7 +123,7 @@ export default {
     },
     async save(curr) {
       if (!this.editName || !curr?.id) return;
-      this.savingId = curr.id;
+      this.showLoading();
       try {
         const payload = { name: this.editName };
         await api.put(`/curriculums/${curr.id}`, payload);
@@ -135,7 +134,7 @@ export default {
         console.error('Failed to update curriculum', e);
         this.error('Failed to update curriculum');
       } finally {
-        this.savingId = null;
+        this.hideLoading();
         this.cancelEdit();
       }
     },
@@ -145,7 +144,7 @@ export default {
       this.confirmOpen = true;
       this.confirmAction = async () => {
         this.confirmOpen = false;
-        this.deletingId = curr.id;
+        this.showLoading();
         try {
           await api.delete(`/curriculums/${curr.id}`);
           await this.fetch();
@@ -155,7 +154,7 @@ export default {
           console.error('Failed to delete curriculum', e);
           this.error('Failed to delete curriculum');
         } finally {
-          this.deletingId = null;
+          this.hideLoading();
         }
       };
     },

@@ -22,6 +22,7 @@
         >
           <option value="1st Semester">1st Semester</option>
           <option value="2nd Semester">2nd Semester</option>
+          <option value="Summer">Summer</option>
         </select>
 
         <select v-if="uniqueFaculties.length > 0" v-model="selectedFaculty" class="filter-select">
@@ -37,9 +38,7 @@
 
       <!-- Right Controls -->
       <div class="col-4 right-controls">
-        <button v-if="Object.keys(groupedSchedules).length > 0" @click="toggleEditMode" class="edit-btn">
-          {{ editMode ? 'Finish Editing' : 'Edit' }}
-        </button>
+     
 
         <button v-if="Object.keys(groupedSchedules).length > 0" @click="saveSchedule('pending')" class="save-btn">
           Save as Pending
@@ -245,6 +244,7 @@ import ConfirmModal from "../../../../components/ConfirmModal.vue";
 import { useLoading } from "../../../../composables/useLoading";
 import api from "@/axios";
 import "/resources/css/create.css";
+import emitter from "../../../../eventBus";
 
 export default {
   components: { LoadingModal, ConfirmModal },
@@ -1210,18 +1210,17 @@ undoLastAssignment() {
       const semesterMap = {
         "1st Semester": 1,
         "2nd Semester": 2,
+        "Summer": 3,
       };
-      const semester_id = semesterMap[this.semester] || 1;
+      const semester_id = semesterMap[this.semester];
 
       this.loading = true;
       this.show();
 
       try {
         const res = await api.post("/generate-schedule", {
-          body: JSON.stringify({
-            academicYear: this.academicYear,
-            semester: this.semester, // send the string directly
-          }),
+          academicYear: this.academicYear,
+          semester: semester_id,
         });
 
         const result = res.data;
@@ -1502,6 +1501,7 @@ async saveSchedule(mode = 'pending') {
     const data = res.data;
     if (data && data.success) {
       this.showSuccess(mode === 'pending' ? 'Saved as pending.' : 'Schedule finalized.');
+      emitter.emit('schedule-updated');
     } else {
       const serverMsg = data && (data.message || data.error) ? (data.message || data.error) : 'Failed to save schedule.';
       this.showError(serverMsg);

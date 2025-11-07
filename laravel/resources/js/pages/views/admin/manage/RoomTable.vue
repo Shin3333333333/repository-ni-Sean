@@ -3,7 +3,6 @@
     <thead>
       <tr>
         <th>Room</th>
-        <th>Capacity</th>
         <th>Type</th>
         <th>Status</th>
         <th>Actions</th>
@@ -12,7 +11,6 @@
     <tbody>
       <tr v-for="room in roomList" :key="room.id">
         <td>{{ room.name }}</td>
-        <td>{{ room.capacity }}</td>
         <td>{{ room.type }}</td>
         <td>
           <span :class="room.status === 'Available' ? 'status-yes' : 'status-no'">

@@ -112,6 +112,7 @@ Route::delete('/finalized-schedules/{batch_id}', [FinalizedScheduleController::c
 Route::post('/finalized-schedules/{batch_id}/activate', [FinalizedScheduleController::class, 'activate']);
 Route::post('/finalized-schedules/{batch_id}/archive', [FinalizedScheduleController::class, 'archive']);
 
+Route::get('/active-schedules', [ActiveScheduleController::class, 'index']);
 Route::get('/active-schedule', [ActiveScheduleController::class, 'getActive']);
 Route::post('/set-active-schedule', [ActiveScheduleController::class, 'setActive']);
 Route::post('/detect-conflicts', [ScheduleController::class, 'detectConflicts']);

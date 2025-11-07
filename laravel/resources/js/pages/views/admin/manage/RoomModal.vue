@@ -10,11 +10,6 @@
         </div>
 
         <div class="form-group col-6">
-          <label>Capacity:</label>
-          <input v-model.number="localForm.capacity" type="number" min="1" required />
-        </div>
-
-        <div class="form-group col-6">
           <label>Type:</label>
           <select
             id="type"
@@ -46,6 +41,8 @@
 
 <script>
 import api from '~/axios';
+import { useToast } from '../../../../composables/useToast';
+import { useLoading } from '../../../../composables/useLoading';
 
 export default {
   name: "RoomModal",
@@ -53,8 +50,13 @@ export default {
     show: Boolean,
     form: {
       type: Object,
-      default: () => ({ id: null, name: '', capacity: '', type: 'Lecture', status: 'Available' })
+      default: () => ({ id: null, name: '', type: 'Lecture', status: 'Available' })
     }
+  },
+  setup() {
+    const { show, hide } = useLoading();
+    const { success, error } = useToast();
+    return { showLoading: show, hideLoading: hide, success, error };
   },
   data() {
     return {
@@ -75,10 +77,10 @@ export default {
       this.$emit("update:show", false);
     },
    async handleSubmit() {
+    this.showLoading();
   try {
     const payload = {
       name: this.localForm.name?.trim() || "",
-      capacity: Number(this.localForm.capacity) || 1,
       type: this.localForm.type?.trim() || "",
       status: ["Available","Unavailable"].includes(this.localForm.status) ? this.localForm.status : "Available",
     };
@@ -94,17 +96,19 @@ export default {
     const savedRoom = {
       id: res.data.data?.id || res.data.id,
       name: res.data.data?.name || res.data.name,
-      capacity: res.data.data?.capacity || res.data.capacity,
       type: res.data.data?.type || res.data.type,
       status: res.data.data?.status || res.data.status,
     };
 
     this.$emit("submit", savedRoom);
+    this.success('Room updated successfully!');
     this.closeModal();
 
   } catch (err) {
+    this.error('Failed to update room. Check required fields!');
     console.error("Failed to save room:", err.response?.data || err);
-    alert("Failed to save room. Check required fields!");
+  } finally {
+    this.hideLoading();
   }
 }
 
