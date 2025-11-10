@@ -200,3 +200,25 @@ In addition to the core CP-SAT solver, the frontend (`PendingPanel.vue`) employs
 1.  **Pre-calculated Suggestions:** The Python backend provides a list of high-quality potential assignments for each unassigned subject, scored and sorted based on the same heuristics used by the main solver (faculty match, room suitability, etc.).
 2.  **Locally Optimal Choice:** When the user clicks "Auto Assign All," the frontend code iterates through each unassigned subject and immediately assigns it the **highest-scoring** available suggestion.
 3.  **Greedy Nature:** This is considered a "greedy" approach because it makes the best local choice at each step without re-evaluating the global state. It does not reconsider a choice once made. For example, assigning Subject A to its best-fit professor might prevent Subject B from being assigned at all, but the greedy algorithm does not look ahead to see this. It simply provides a fast and effective way to handle the remaining subjects based on the powerful suggestions from the backend.
+
+---
+
+## 8. Deployment and Hosting Considerations
+
+The application's hybrid architecture imposes specific requirements that make it unsuitable for standard free hosting services.
+
+### Why Free Hosting is Not Viable
+
+1.  **High Resource Requirements:** The core AI scheduling process, which uses Google's CP-SAT solver, is computationally intensive. It requires significant CPU and RAM to solve complex scheduling problems in a timely manner. Free hosting tiers are typically heavily throttled and would cause the AI process to fail or time out.
+
+2.  **Hybrid Environment (PHP + Python):** The system requires a hosting environment that can simultaneously run both the Laravel (PHP) web application and a separate Python runtime for the AI engine. Most free platforms are designed to host a single application type (e.g., only PHP or only Node.js) and do not support the multi-process, multi-language environment this project needs.
+
+3.  **Complex Dependencies:** The Python environment depends on specific scientific computing libraries, most notably Google's OR-Tools. Installing these specialized libraries is often difficult or impossible on the restrictive, shared environments provided by free hosting services.
+
+### Recommended Hosting Strategy
+
+Due to these constraints, the recommended deployment target is a **Virtual Private Server (VPS)** or a similar cloud computing instance (e.g., from AWS, Google Cloud, or DigitalOcean). This approach provides:
+
+-   **Dedicated Resources:** Guarantees the necessary CPU and RAM for the AI to run effectively.
+-   **Full Environment Control:** Allows for the installation of both PHP and Python, along with all required libraries and dependencies.
+-   **Scalability:** Provides a clear path for scaling resources as the application's usage grows.

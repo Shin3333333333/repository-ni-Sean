@@ -163,6 +163,7 @@
               <h4>Unassigned Subjects (Quick Assign)</h4>
               <div style="display:flex; gap:8px; align-items:center;">
                 <button v-if="editMode" class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+                <button v-if="editMode" class="auto-assign-btn" @click="runAIForUnassigned">🤖 Run AI for Unassigned</button>
                 <button v-if="editMode" class="auto-assign-btn" @click="manualAssignMode = !manualAssignMode">
                   ✍️ {{ manualAssignMode ? 'Manual Assign: ON' : 'Manual Assign' }}
                 </button>
@@ -368,6 +369,7 @@ import draggable from "vuedraggable";
 import emitter from "../../../../eventBus";
 import "/resources/css/create.css";
 import api from "../../../../axios";
+import axios from "axios";
 
 export default {
   components: { LoadingModal, ConfirmModal, draggable },
@@ -496,6 +498,43 @@ totalConflicts() {
 
   },
   methods: {
+    validateTimeFormat(timeString) {
+      // Allows for formats like "09:00-11:00" or "Mon 09:00-11:00"
+      // Now case-insensitive and accepts full day names e.g. "Monday"
+      // Also accepts "MON 09:00-11:00" and "monday 09:00-11:00"
+      const dayPattern = '(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)';
+      const timePattern = '\\d{2}:\\d{2}-\\d{2}:\\d{2}';
+      const regex = new RegExp(`^(${dayPattern} )?${timePattern}$`, 'i');
+      return regex.test(timeString);
+      },
+      normalizeTimeFormat(timeString) {
+        if (!timeString || typeof timeString !== 'string') {
+          return timeString;
+        }
+
+        const dayMap = {
+          monday: 'Mon', mon: 'Mon',
+          tuesday: 'Tue', tue: 'Tue',
+          wednesday: 'Wed', wed: 'Wed',
+          thursday: 'Thu', thu: 'Thu',
+          friday: 'Fri', fri: 'Fri',
+          saturday: 'Sat', sat: 'Sat',
+          sunday: 'Sun', sun: 'Sun',
+        };
+
+        const trimmedString = timeString.trim();
+        const parts = trimmedString.split(' ');
+
+        if (parts.length === 2) {
+          const dayPart = parts[0].toLowerCase();
+          const timePart = parts[1];
+          if (dayMap[dayPart]) {
+            return `${dayMap[dayPart]} ${timePart}`;
+          }
+        }
+        
+        return trimmedString;
+      },
     getSuggestionColor(count) {
       if (count === 0) return '#ffcccc'; // Red for no suggestions
       if (count < 3) return '#ffebcc'; // Orange for few suggestions
@@ -792,6 +831,15 @@ saveEdit(faculty, rowIndex, col) {
   this.savingEdit = true;
   try {
     const key = col.toLowerCase().replace(" ", "_");
+
+    if (col === 'Time') {
+      if (!this.validateTimeFormat(this.editableValue)) {
+        this.error('Invalid time format. Please use HH:MM-HH:MM or Day HH:MM-HH:MM.');
+        return;
+      }
+      this.editableValue = this.normalizeTimeFormat(this.editableValue);
+    }
+
     const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
     const editedRow = facultyRows[rowIndex];
     if (!editedRow) return;
@@ -1037,6 +1085,29 @@ deleteUnassigned(subjectId) {
       } catch (error) {
         console.error("Error assigning to faculty:", error);
       }
+    },
+
+    runAIForUnassigned() {
+      console.log('runAIForUnassigned triggered');
+      const unassignedSubjects = this.pendingSchedules.filter(s => !s.faculty || s.faculty === 'Unknown');
+      const existingAssignments = this.pendingSchedules.filter(s => s.faculty && s.faculty !== 'Unknown');
+
+      const payload = {
+        unassigned_subjects: unassignedSubjects,
+        existing_assignments: existingAssignments,
+        professors: this.professors, // Assuming `this.professors` is available
+        rooms: this.rooms, // Assuming `this.rooms` is available
+        time_slots: this.time_slots, // Assuming `this.time_slots` is available
+      };
+
+      axios.post('/api/run-ai-unassigned', payload)
+        .then(response => {
+          console.log('AI run successful', response.data);
+          // Process and apply the new assignments from response.data
+        })
+        .catch(error => {
+          console.error('Error running AI for unassigned subjects:', error);
+        });
     },
 
     // ✅ Added improved overlap handling like CreatePanel
