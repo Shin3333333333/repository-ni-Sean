@@ -33,7 +33,6 @@
 
       <!-- Admin & Superadmin Buttons -->
       <template v-if="userType === 'admin' || userType === 'superadmin'">
-        <router-link to="/error-log" class="error-loog-btn" active-class="active">Error Log</router-link>
         <router-link to="/create" class="generate-btn" active-class="active">Generate</router-link>
       </template>
       

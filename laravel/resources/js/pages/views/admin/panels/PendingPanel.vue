@@ -163,7 +163,6 @@
               <h4>Unassigned Subjects (Quick Assign)</h4>
               <div style="display:flex; gap:8px; align-items:center;">
                 <button v-if="editMode" class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
-                <button v-if="editMode" class="auto-assign-btn" @click="runAIForUnassigned">🤖 Run AI for Unassigned</button>
                 <button v-if="editMode" class="auto-assign-btn" @click="manualAssignMode = !manualAssignMode">
                   ✍️ {{ manualAssignMode ? 'Manual Assign: ON' : 'Manual Assign' }}
                 </button>

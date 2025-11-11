@@ -23,7 +23,6 @@ use App\Http\Controllers\{
     CoursesController,
     SubjectsController,
     SchedulesController,
-    ErrorLogsController,
     RoomsController,
     CurriculumController,
     ScheduleController,
@@ -55,7 +54,6 @@ Route::post('/faculty/create-temporary-account', [ProfessorsController::class, '
 Route::apiResource('courses', CoursesController::class)->middleware('auth:sanctum');
 Route::apiResource('subjects', SubjectsController::class)->middleware('auth:sanctum', 'role:admin');
 Route::apiResource('schedules', SchedulesController::class)->middleware('auth:sanctum', 'role:admin');
-Route::apiResource('error-logs', ErrorLogsController::class)->middleware('auth:sanctum', 'role:admin');
 Route::apiResource('rooms', RoomsController::class)->middleware('auth:sanctum');
 Route::get('/users', [UserController::class, 'index'])->middleware('auth:sanctum', 'role:admin');
 Route::get('/user', [AuthenticatedSessionController::class, 'getAuthenticatedUser'])->middleware('auth:sanctum');

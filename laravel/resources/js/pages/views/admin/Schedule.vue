@@ -41,7 +41,7 @@
           v-if="latestSchedule.length"
           :class="{ active: isSelectedActive() }"
           :disabled="isSelectedActive()"
-          @click="!isSelectedActive() && (showStageModal = true)"
+          @click="!isSelectedActive() && confirmAndSetAsActive()"
           :title="isSelectedActive() ? 'This schedule is active' : 'Stage as active schedule'"
         >
           {{ isSelectedActive() ? 'Active' : 'Stage as Active Schedule' }}
@@ -150,6 +150,17 @@
       </div>
     </div>
 
+    <!-- Confirmation Modal for similar name -->
+    <div v-if="showConfirmationModal" class="modal-backdrop">
+      <div class="modal">
+        <p>A schedule with a similar name is already active. Are you sure you want to proceed?</p>
+        <div class="modal-actions">
+          <button @click="setAsActiveSchedule" class="confirm">Yes, Proceed</button>
+          <button @click="showConfirmationModal = false" class="cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Archive Drawer -->
     <div v-if="showArchiveDrawer" class="archive-drawer-backdrop" @click.self="showArchiveDrawer=false">
       <aside class="archive-drawer">
@@ -213,6 +224,7 @@ export default {
       facultyLoads: [],
       courseSchedules: {},
       showStageModal: false,
+      showConfirmationModal: false,
       activeScheduleInfo: null,
       // Archives UI
       showArchiveDrawer: false,
@@ -530,6 +542,17 @@ export default {
         this.activeScheduleInfo.academicYear === this.selectedAcademicYear &&
         this.activeScheduleInfo.semester === this.selectedSemester
       );
+    },
+
+    confirmAndSetAsActive() {
+      const activeName = this.activeScheduleInfo?.academicYear;
+      const selectedName = this.selectedAcademicYear;
+
+      if (activeName && selectedName.startsWith(activeName) && selectedName !== activeName) {
+        this.showConfirmationModal = true;
+      } else {
+        this.showStageModal = true;
+      }
     },
 
     async setAsActiveSchedule() {
