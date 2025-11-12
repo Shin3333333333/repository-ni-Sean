@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: school-scheduler-app-api # Make sure this name matches your service on Render
-    env: php
-    plan: free
-    rootDir: laravel
-    buildCommand: "composer install --no-dev --optimize-autoloader"
-    startCommand: "heroku-php-apache2 public/"
