@@ -1,12 +1,10 @@
 services:
   - type: web
     name: school-scheduler-app-api # Make sure this name matches your service on Render
-    env: php
     plan: free
+    # DO NOT specify 'env' or 'runtime'. The buildpack handles it.
+    buildpacks:
+      - url: https://github.com/heroku/heroku-buildpack-php
     rootDir: laravel
-    buildCommand: |
-      composer install --no-dev --optimize-autoloader
-      php artisan config:cache
-      php artisan route:cache
-      php artisan view:cache
+    buildCommand: "composer install --no-dev --optimize-autoloader"
     startCommand: "heroku-php-apache2 public/"
