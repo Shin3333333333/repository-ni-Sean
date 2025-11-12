@@ -93,9 +93,10 @@
                       v-for="day in weekDays"
                       :key="day.value"
                       class="day-item"
-                      :class="{ 
+                      :class="{
                         'is-selected': selectedDays.includes(day.value),
-                        'is-whole-day': wholeDayUnavailable.includes(day.value)
+                        'is-whole-day': wholeDayUnavailable.includes(day.value),
+                        'disabled': !isEditingProfessorDetails
                       }"
                       @click="toggleDay(day.value)"
                     >
@@ -420,6 +421,7 @@ export default {
     },
 
     toggleDay(dayValue) {
+      if (!this.isEditingProfessorDetails) return;
       const index = this.selectedDays.indexOf(dayValue);
       if (index > -1) {
         this.selectedDays.splice(index, 1);
@@ -433,6 +435,7 @@ export default {
     },
 
     setDayUseSpecific(dayValue, useSpecific) {
+      if (!this.isEditingProfessorDetails) return;
       const item = this.perDayItems.find(i => i.dayValue === dayValue);
       if (item) {
         item.useSpecific = useSpecific;
@@ -450,10 +453,12 @@ export default {
     },
 
     onDayTimeChanged() {
+      if (!this.isEditingProfessorDetails) return;
       this.updateProfessorTimeUnavailable();
     },
 
     removeUnavailableByDay(dayValue) {
+      if (!this.isEditingProfessorDetails) return;
       this.selectedDays = this.selectedDays.filter(d => d !== dayValue);
       this.wholeDayUnavailable = this.wholeDayUnavailable.filter(d => d !== dayValue);
       this.updatePerDayItems();
@@ -682,7 +687,12 @@ export default {
   background-color: #fff;
   font-weight: 500;
 }
-.day-item:hover {
+.day-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.day-item:not(.disabled):hover {
   border-color: #007bff;
   color: #007bff;
 }
