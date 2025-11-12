@@ -20,4 +20,3 @@ export function useToast() {
     info: (msg, t) => pushToast('info', msg, t),
   };
 }
-

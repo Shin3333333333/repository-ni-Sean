@@ -49,292 +49,297 @@
     <transition name="modal-fade">
       <div v-if="showModal && selectedBatch" class="modal-overlay" @click.self="closeModal">
         <div class="modal-content" style="min-width: 95vw; min-height: 90vh;">
-          <div class="modal-header">
-            <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
+          <div v-if="isLoading" class="loading-indicator">
+            Loading schedules...
+          </div>
+          <template v-else>
+            <div class="modal-header">
+              <h3>🧑‍🏫 Batch {{ selectedBatch }}</h3>
 
-            <!-- Academic Year and Semester Input -->
-            <div class="academic-info" v-if="academicYear === 'Unknown Year' || semester === 'Unknown Semester'">
-              <div class="input-group">
-                <label for="academicYearInput">📅 Academic Year:</label>
-                <input
-                  id="academicYearInput"
-                  v-model="academicYear"
-                  type="text"
-                  placeholder="e.g., 2024-2025"
-                  class="academic-input"
-                />
+              <!-- Academic Year and Semester Input -->
+              <div class="academic-info" v-if="academicYear === 'Unknown Year' || semester === 'Unknown Semester'">
+                <div class="input-group">
+                  <label for="academicYearInput">📅 Academic Year:</label>
+                  <input
+                    id="academicYearInput"
+                    v-model="academicYear"
+                    type="text"
+                    placeholder="e.g., 2024-2025"
+                    class="academic-input"
+                  />
+                </div>
+                <div class="input-group">
+                  <label for="semesterInput">📚 Semester:</label>
+                  <select id="semesterInput" v-model="semester" class="academic-input">
+                    <option value="Unknown Semester">Select Semester</option>
+                    <option value="1st Semester">1st Semester</option>
+                    <option value="2nd Semester">2nd Semester</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                  </select>
+                </div>
+                <div class="academic-warning">
+                  ⚠️ Please set the correct Academic Year and Semester before finalizing
+                </div>
               </div>
-              <div class="input-group">
-                <label for="semesterInput">📚 Semester:</label>
-                <select id="semesterInput" v-model="semester" class="academic-input">
-                  <option value="Unknown Semester">Select Semester</option>
-                  <option value="1st Semester">1st Semester</option>
-                  <option value="2nd Semester">2nd Semester</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
+
+              <div class="faculty-filter">
+                <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
+                <select id="facultySelect" v-model="facultyFilter" class="filter-select">
+                  <option value="">📋 Show All Faculty</option>
+                  <option
+                    v-for="(count, facultyName) in facultyCounts"
+                    :key="facultyName"
+                    :value="facultyName"
+                  >
+                    {{ facultyName }} ({{ count }})
+                  </option>
                 </select>
               </div>
-              <div class="academic-warning">
-                ⚠️ Please set the correct Academic Year and Semester before finalizing
-              </div>
-            </div>
-
-            <div class="faculty-filter">
-              <label for="facultySelect">👩‍🏫 Filter Faculty:</label>
-              <select id="facultySelect" v-model="facultyFilter" class="filter-select">
-                <option value="">📋 Show All Faculty</option>
-                <option
-                  v-for="(count, facultyName) in facultyCounts"
-                  :key="facultyName"
-                  :value="facultyName"
-                >
-                  {{ facultyName }} ({{ count }})
-                </option>
-              </select>
-            </div>
-           <!-- ====== Header Buttons ====== -->
-  <div class="header-buttons">
-    <div class="action-buttons">
-      <button class="edit-btn" @click="toggleEditMode">
-        {{ editMode ? 'Finish Editing' : 'Edit' }}
-      </button>
-      <button v-if="editMode" class="save-btn" @click="saveChanges">
-        💾 Save Changes
-      </button>
-      <div v-if="editMode" class="add-row-group">
-        <button class="add-row-btn" @click="toggleAddRowPicker">➕ Add Row</button>
-        <div v-if="showAddRowPicker && !deleteMode" class="add-row-popover">
-          <select v-model="selectedAddFaculty" class="add-row-select" @change="handleAddRowSelect">
-            <option disabled value="">Select faculty…</option>
-            <option v-for="name in facultyOptions" :key="name" :value="name">{{ name }}</option>
-          </select>
-        </div>
-        <template v-if="!deleteMode">
-          <button class="delete-btn" @click="toggleDeleteMode">🗑 Delete Rows</button>
-        </template>
-        <template v-else>
-          <button class="delete-btn" :disabled="!selectedRows.length" @click="deleteSelectedRows">
-            🗑 Delete Selected ({{ selectedRows.length || 0 }})
-          </button>
-          <button class="exit-btn" @click="toggleDeleteMode">Cancel</button>
-        </template>
-      </div>
-      <button v-if="editMode" class="undo-btn" @click="undoLastAction">
-        ↩️ Undo Last Action
-      </button>
-      <button class="finalize-btn" @click="finalizeSchedule()">Finalize</button>
-
-      <button class="exit-btn" @click="closeModal">Exit</button>
-    </div>
-
-  </div>
-  <!-- Toast -->
-  <div v-if="message" :class="['toast', messageType]">{{ message }}</div>
-
-   
-
-          </div>
-
-          <!-- ====== Summary Overview ====== -->
-          <div class="summary-overview" v-if="pendingSchedules.length">
-            <h4>📊 Summary Overview</h4>
-            <div class="summary-cards">
-              <div class="summary-card assigned">
-                <h5>Total Assigned</h5>
-                <p>{{ totalAssigned }}</p>
-              </div>
-              <div class="summary-card unassigned">
-                <h5>Total Unassigned</h5>
-                <p>{{ totalUnassigned }}</p>
-              </div>
-              <div class="summary-card conflicts">
-                <h5>Conflicts</h5>
-                <p>{{ totalConflicts }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- ====== Quick Assign Unassigned Subjects ====== -->
-          <div
-            class="unassigned-top"
-            v-if="pendingSchedules.length && pendingSchedules.some(s => !s.faculty || s.faculty === 'Unknown')"
-          >
-            <div class="unassigned-header">
-              <h4>Unassigned Subjects (Quick Assign)</h4>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <button v-if="editMode" class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
-                <button v-if="editMode" class="auto-assign-btn" @click="runAIForUnassigned">🤖 Run AI for Unassigned</button>
-                <button v-if="editMode" class="auto-assign-btn" @click="manualAssignMode = !manualAssignMode">
-                  ✍️ {{ manualAssignMode ? 'Manual Assign: ON' : 'Manual Assign' }}
-                </button>
-              </div>
-            </div>
-
-            <table class="create-table stylish-table">
-              <thead>
-                <tr>
-                  <th v-if="editMode && deleteMode"><input type="checkbox" @change="toggleAllUnassigned($event)" /></th>
-                  <th>Subject Code</th>
-                  <th>Subject Title</th>
-                  <th>Course Section</th>
-                  <th>Units</th>
-                  <th>{{ manualAssignMode ? 'Faculty Selection' : 'Possible Assignments' }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="u in pendingSchedules.filter(s => !s.faculty || s.faculty === 'Unknown')"
-                  :key="u.id"
-                  :style="{ background: getSuggestionColor(getPossibleAssignments(u).length) }"
-                >
-                  <td v-if="editMode && deleteMode"><input type="checkbox" v-model="selectedRows" :value="u.id" /></td>
-                  <td>{{ u.subject_code || u.subject_code_label || '—' }}</td>
-                  <td>{{ u.subject || u.subject_title || '—' }}</td>
-                  <td>{{ u.course_section || '—' }}</td>
-                  <td>{{ u.units || 3 }}</td>
-                  <td>
-                    <template v-if="!manualAssignMode">
-                      <select
-                        v-if="getPossibleAssignments(u).length"
-                        @change="assignSuggestion(u.id, JSON.parse($event.target.value))"
-                        class="fancy-select"
-                        :disabled="!editMode"
-                        style="width: 100%;"
-                      >
-                        <option value="">Select Possible Assignment</option>
-                        <option
-                          v-for="(pa, i) in getPossibleAssignments(u)"
-                          :key="i"
-                          :value="JSON.stringify(pa)"
-                        >
-                          {{ formatFacultyFromOption(pa) }} — {{ pa.time || pa.time_slot_label }}
-                          ({{ pa.room_name || pa.classroom }})
-                          <span v-if="suggestionFlags(pa, u).bestFit">⭐ Best Fit</span>
-                        </option>
-                      </select>
-                      <span v-else class="no-assignments">No possible assignments</span>
-                    </template>
-                    <template v-else>
-                      <select
-                        @change="onManualAssign(u, $event.target.value)"
-                        class="fancy-select"
-                        :disabled="!editMode"
-                        style="width: 100%;"
-                      >
-                        <option value="">Select Faculty</option>
+              <!-- ====== Header Buttons ====== -->
+              <div class="header-buttons">
+                <div class="action-buttons">
+                  <button class="edit-btn" @click="toggleEditMode">
+                    {{ editMode ? 'Finish Editing' : 'Edit' }}
+                  </button>
+                  <button v-if="editMode" class="save-btn" @click="saveChanges">
+                    💾 Save Changes
+                  </button>
+                  <div v-if="editMode" class="add-row-group">
+                    <button class="add-row-btn" @click="toggleAddRowPicker">➕ Add Row</button>
+                    <div v-if="showAddRowPicker && !deleteMode" class="add-row-popover">
+                      <select v-model="selectedAddFaculty" class="add-row-select" @change="handleAddRowSelect">
+                        <option disabled value="">Select faculty…</option>
                         <option v-for="name in facultyOptions" :key="name" :value="name">{{ name }}</option>
                       </select>
+                    </div>
+                    <template v-if="!deleteMode">
+                      <button class="delete-btn" @click="toggleDeleteMode">🗑 Delete Rows</button>
                     </template>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                    <template v-else>
+                      <button class="delete-btn" :disabled="!selectedRows.length" @click="deleteSelectedRows">
+                        🗑 Delete Selected ({{ selectedRows.length || 0 }})
+                      </button>
+                      <button class="exit-btn" @click="toggleDeleteMode">Cancel</button>
+                    </template>
+                  </div>
+                  <button v-if="editMode" class="undo-btn" @click="undoLastAction">
+                    ↩️ Undo Last Action
+                  </button>
+                  <button class="finalize-btn" @click="finalizeSchedule()">Finalize</button>
 
-        <!-- ====== Faculty Groups Table ====== -->
-  <div v-for="(facultySchedules, facultyName) in groupedByFaculty" :key="facultyName" class="faculty-section">
-    <h4>{{ formatFacultyHeaderPending(facultyName) }}</h4>
-
-    <table class="create-table">
-      <thead>
-        <tr>
-          <th v-if="editMode">⇅</th>
-          <th v-if="editMode && deleteMode">
-            <input type="checkbox" @change="toggleAll($event, facultySchedules)" />
-          </th>
-          <th v-for="col in tableColumns" :key="col">{{ col }}</th>
-        </tr>
-      </thead>
-
-      <draggable
-        v-model="groupedByFaculty[facultyName]"
-        :disabled="!editMode"
-        handle=".drag-handle"
-        item-key="id"
-        tag="tbody"
-      >
-        <template #item="{ element, index }">
-         <tr
-    :class="{ conflict: element.conflict }"
-    :title="element.conflict ? getConflictTooltip(element) : ''"
-  >
-    <td v-if="editMode" class="drag-handle" style="cursor: grab;">☰</td>
-    <td v-if="editMode && deleteMode">
-      <input type="checkbox" v-model="selectedRows" :value="element.id" />
-    </td>
-
-    <td
-      v-for="(col, cIndex) in tableColumns"
-      :key="cIndex"
-      draggable="true"
-      @dragstart="startDrag($event, element, col)"
-      @dragover.prevent
-      @drop="onDrop($event, facultyName, index, col)"
-      class="draggable-cell"
-      :class="{ editable: editMode }"
-      @dblclick="enableEdit(facultyName, index, col)"
-    >
-      <input
-        v-if="isEditingCell(facultyName, index, col)"
-        v-model="editableValue"
-        @blur="saveEdit(facultyName, index, col)"
-        @keyup.enter.stop.prevent="saveEdit(facultyName, index, col)"
-        class="edit-input"
-        autofocus
-      />
-      <div v-else>
-        <div class="cell-content">
-          <div class="cell-main">
-            {{ element[col.toLowerCase().replace(' ', '_')] }}
-            <span v-if="element.conflict" class="conflict-note">⚠ Conflict</span>
-          </div>
-
-          <!-- Inline suggestions for unassigned subjects (optional) -->
-          <div
-            v-if="col === 'Subject' && element.faculty === 'Unknown' && (element.possible_assignments && element.possible_assignments.length)"
-            class="suggestions-inline"
-          >
-            <div
-              v-for="(sug, si) in element.possible_assignments"
-              :key="si"
-              class="suggestion-row"
-            >
-              <div class="s-left">
-                <div class="s-title">{{ formatFacultyFromOption(sug) }}</div>
-                <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
-              </div>
-              <div class="s-right">
-                <div class="badges">
-                  <span
-                    v-if="element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id))"
-                    class="badge assigned"
-                  >Assigned</span>
+                  <button class="exit-btn" @click="closeModal">Exit</button>
                 </div>
-                <div class="s-actions">
-                  <button
-                    v-if="editMode"
-                    class="assign-btn small"
-                    @click.stop="assignSuggestion(element.id, sug)"
-                    :disabled="!editMode || suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
-                  >Assign</button>
+
+              </div>
+              <!-- Toast -->
+              <div v-if="message" :class="['toast', messageType]">{{ message }}</div>
+
+            </div>
+
+            <!-- ====== Summary Overview ====== -->
+            <div class="summary-overview" v-if="pendingSchedules.length">
+              <h4>📊 Summary Overview</h4>
+              <div class="summary-cards">
+                <div class="summary-card assigned">
+                  <h5>Total Assigned</h5>
+                  <p>{{ totalAssigned }}</p>
+                </div>
+                <div class="summary-card unassigned">
+                  <h5>Total Unassigned</h5>
+                  <p>{{ totalUnassigned }}</p>
+                </div>
+                <div class="summary-card conflicts">
+                  <h5>Conflicts</h5>
+                  <p>{{ totalConflicts }}</p>
                 </div>
               </div>
             </div>
-          </div>
 
-        </div>
-      </div>
-    </td>
-  </tr>
+            <!-- ====== Quick Assign Unassigned Subjects ====== -->
+            <div
+              class="unassigned-top"
+              v-if="pendingSchedules.length && pendingSchedules.some(s => !s.faculty || s.faculty === 'Unknown')"
+            >
+              <div class="unassigned-header">
+                <h4>Unassigned Subjects (Quick Assign)</h4>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button v-if="editMode" class="auto-assign-btn" @click="autoAssignAll">⚙️ Auto Assign All</button>
+                  <button v-if="editMode" class="auto-assign-btn" @click="manualAssignMode = !manualAssignMode">
+                    ✍️ {{ manualAssignMode ? 'Manual Assign: ON' : 'Manual Assign' }}
+                  </button>
+                </div>
+              </div>
 
-        </template>
-      </draggable>
-    </table>
+              <table class="create-table stylish-table">
+                <thead>
+                  <tr>
+                    <th v-if="editMode && deleteMode"><input type="checkbox" @change="toggleAllUnassigned($event)" /></th>
+                    <th>Subject Code</th>
+                    <th>Subject Title</th>
+                    <th>Course Section</th>
+                    <th>Units</th>
+                    <th>{{ manualAssignMode ? 'Faculty Selection' : 'Possible Assignments' }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="u in pendingSchedules.filter(s => !s.faculty || s.faculty === 'Unknown')"
+                    :key="u.id"
+                    :style="{ background: getSuggestionColor(getPossibleAssignments(u).length) }"
+                  >
+                    <td v-if="editMode && deleteMode"><input type="checkbox" v-model="selectedRows" :value="u.id" /></td>
+                    <td>{{ u.subject_code || u.subject_code_label || '—' }}</td>
+                    <td>{{ u.subject || u.subject_title || '—' }}</td>
+                    <td>{{ u.course_section || '—' }}</td>
+                    <td>{{ u.units || 3 }}</td>
+                    <td>
+                      <template v-if="!manualAssignMode">
+                        <select
+                          v-if="getPossibleAssignments(u).length"
+                          @change="assignSuggestion(u.id, JSON.parse($event.target.value))"
+                          class="fancy-select"
+                          :disabled="!editMode"
+                          style="width: 100%;"
+                        >
+                          <option value="">Select Possible Assignment</option>
+                          <option
+                            v-for="(pa, i) in getPossibleAssignments(u)"
+                            :key="i"
+                            :value="JSON.stringify(pa)"
+                          >
+                            {{ formatFacultyFromOption(pa) }} — {{ pa.time || pa.time_slot_label }}
+                            ({{ pa.room_name || pa.classroom }})
+                            <span v-if="suggestionFlags(pa, u).bestFit">⭐ Best Fit</span>
+                          </option>
+                        </select>
+                        <span v-else class="no-assignments">No possible assignments</span>
+                      </template>
+                      <template v-else>
+                        <select
+                          @change="onManualAssign(u, $event.target.value)"
+                          class="fancy-select"
+                          :disabled="!editMode"
+                          style="width: 100%;"
+                        >
+                          <option value="">Select Faculty</option>
+                          <option v-for="name in facultyOptions" :key="name" :value="name">{{ name }}</option>
+                        </select>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-    <div class="total-units">
-      Total Load Units: {{ getFacultyTotal(facultySchedules) }}
-    </div>
-  </div>
+            <!-- ====== Faculty Groups Table ====== -->
+            <div v-for="(facultySchedules, facultyName) in groupedByFaculty" :key="facultyName" class="faculty-section">
+              <h4>{{ formatFacultyHeaderPending(facultyName) }}</h4>
+
+              <table class="create-table">
+                <thead>
+                  <tr>
+                    <th v-if="editMode">⇅</th>
+                    <th v-if="editMode && deleteMode">
+                      <input type="checkbox" @change="toggleAll($event, facultySchedules)" />
+                    </th>
+                    <th v-for="col in tableColumns" :key="col">{{ col }}</th>
+                  </tr>
+                </thead>
+
+                <draggable
+                  v-model="groupedByFaculty[facultyName]"
+                  :disabled="!editMode"
+                  handle=".drag-handle"
+                  item-key="id"
+                  tag="tbody"
+                >
+                  <template #item="{ element, index }">
+                    <tr
+                      :class="{ conflict: element.conflict, finalized: element.finalized }"
+                      :title="element.conflict ? getConflictTooltip(element) : ''"
+                    >
+                      <td v-if="editMode && !element.finalized" class="drag-handle" style="cursor: grab;">☰</td>
+                      <td v-else-if="editMode && element.finalized" class="drag-handle-disabled"></td>
+                      <td v-if="editMode && deleteMode && !element.finalized">
+                        <input type="checkbox" v-model="selectedRows" :value="element.id" />
+                      </td>
+                      <td v-else-if="editMode && deleteMode && element.finalized"></td>
+
+                      <td
+                        v-for="(col, cIndex) in tableColumns"
+                        :key="cIndex"
+                        draggable="true"
+                        @dragstart="startDrag($event, element, col)"
+                        @dragover.prevent
+                        @drop="onDrop($event, facultyName, index, col)"
+                        class="draggable-cell"
+                        :class="{ editable: editMode && !element.finalized }"
+                        @dblclick="!element.finalized && enableEdit(facultyName, index, col)"
+                      >
+                        <input
+                          v-if="isEditingCell(facultyName, index, col) && !element.finalized"
+                          v-model="editableValue"
+                          @blur="saveEdit(facultyName, index, col)"
+                          @keyup.enter.stop.prevent="saveEdit(facultyName, index, col)"
+                          class="edit-input"
+                          autofocus
+                        />
+                        <div v-else>
+                          <div class="cell-content">
+                            <div class="cell-main">
+                              {{ element[col.toLowerCase().replace(' ', '_')] }}
+                              <span v-if="element.finalized" class="badge finalized">Finalized</span>
+                              <span v-if="element.conflict" class="conflict-note">⚠ Conflict</span>
+                            </div>
+
+                            <!-- Inline suggestions for unassigned subjects (optional) -->
+                            <div
+                              v-if="col === 'Subject' && element.faculty === 'Unknown' && (element.possible_assignments && element.possible_assignments.length)"
+                              class="suggestions-inline"
+                            >
+                              <div
+                                v-for="(sug, si) in element.possible_assignments"
+                                :key="si"
+                                class="suggestion-row"
+                              >
+                                <div class="s-left">
+                                  <div class="s-title">{{ formatFacultyFromOption(sug) }}</div>
+                                  <div class="s-meta">{{ sug.time || sug.time_slot_label || '' }} • {{ sug.room_name || sug.classroom || '' }}</div>
+                                </div>
+                                <div class="s-right">
+                                  <div class="badges">
+                                    <span
+                                      v-if="element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id))"
+                                      class="badge assigned"
+                                    >Assigned</span>
+                                  </div>
+                                  <div class="s-actions">
+                                    <button
+                                      v-if="editMode"
+                                      class="assign-btn small"
+                                      @click.stop="assignSuggestion(element.id, sug)"
+                                      :disabled="!editMode || suggestionFlags(sug, element).conflictsExistingSlot || suggestionFlags(sug, element).conflictsExistingRoom || (element.assigned_suggestion && (element.assigned_suggestion.faculty_id == (sug.faculty_id || sug.id)))"
+                                    >Assign</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                  </template>
+                </draggable>
+              </table>
+
+              <div class="total-units">
+                Total Load Units: {{ getFacultyTotal(facultySchedules) }}
+              </div>
+            </div>
+          </template>
 
 
         </div>
@@ -373,6 +378,12 @@ import axios from "axios";
 
 export default {
   components: { LoadingModal, ConfirmModal, draggable },
+  props: {
+    initialBatchId: {
+      type: String,
+      default: null,
+    },
+  },
   data() {
     return {
       searchQuery: "",
@@ -380,6 +391,7 @@ export default {
       batchList: [],
       pendingSchedules: [],
       showModal: false,
+      isLoading: false,
       editMode: false,
       deleteMode: false,
       selectedRows: [],
@@ -409,6 +421,7 @@ selectedAddFaculty: "",
       showFinalizeConfirm: false,
       finalizeConfirmText: "",
       finalizeAction: null,
+      isLoading: false,
     };
   },
   setup() {
@@ -417,7 +430,12 @@ selectedAddFaculty: "",
     return { show, hide, success, error };
   },
   mounted() {
-    this.loadPendingSchedules();
+    this.loadPendingSchedules().then(() => {
+      const batchId = this.initialBatchId || this.$route.query.batch_id;
+      if (batchId) {
+        this.openBatch(batchId);
+      }
+    });
   },
   computed: {
     filteredBatches() {
@@ -498,6 +516,17 @@ totalConflicts() {
 
   },
   methods: {
+    openBatch(batchId) {
+      this.selectedBatch = batchId;
+      this.showModal = true;
+      this.isLoading = true;
+      this.pendingSchedules = [];
+      this.loadSchedulesForBatch({ batch_id: batchId });
+    },
+    closeModal() {
+      this.selectedBatch = null;
+      this.showModal = false;
+    },
     validateTimeFormat(timeString) {
       // Allows for formats like "09:00-11:00" or "Mon 09:00-11:00"
       // Now case-insensitive and accepts full day names e.g. "Monday"
@@ -833,11 +862,15 @@ saveEdit(faculty, rowIndex, col) {
     const key = col.toLowerCase().replace(" ", "_");
 
     if (col === 'Time') {
-      if (!this.validateTimeFormat(this.editableValue)) {
+      // Allow 'TBA' as a valid value, otherwise validate the format
+      if (this.editableValue.toUpperCase() !== 'TBA' && !this.validateTimeFormat(this.editableValue)) {
         this.error('Invalid time format. Please use HH:MM-HH:MM or Day HH:MM-HH:MM.');
         return;
       }
-      this.editableValue = this.normalizeTimeFormat(this.editableValue);
+      // Normalize only if it's not 'TBA'
+      if (this.editableValue.toUpperCase() !== 'TBA') {
+        this.editableValue = this.normalizeTimeFormat(this.editableValue);
+      }
     }
 
     const facultyRows = this.pendingSchedules.filter(s => s.faculty === faculty);
@@ -1085,29 +1118,6 @@ deleteUnassigned(subjectId) {
       } catch (error) {
         console.error("Error assigning to faculty:", error);
       }
-    },
-
-    runAIForUnassigned() {
-      console.log('runAIForUnassigned triggered');
-      const unassignedSubjects = this.pendingSchedules.filter(s => !s.faculty || s.faculty === 'Unknown');
-      const existingAssignments = this.pendingSchedules.filter(s => s.faculty && s.faculty !== 'Unknown');
-
-      const payload = {
-        unassigned_subjects: unassignedSubjects,
-        existing_assignments: existingAssignments,
-        professors: this.professors, // Assuming `this.professors` is available
-        rooms: this.rooms, // Assuming `this.rooms` is available
-        time_slots: this.time_slots, // Assuming `this.time_slots` is available
-      };
-
-      axios.post('/api/run-ai-unassigned', payload)
-        .then(response => {
-          console.log('AI run successful', response.data);
-          // Process and apply the new assignments from response.data
-        })
-        .catch(error => {
-          console.error('Error running AI for unassigned subjects:', error);
-        });
     },
 
     // ✅ Added improved overlap handling like CreatePanel
@@ -1737,12 +1747,9 @@ refreshAISuggestions() {
 
     closeModal(){
       this.showModal=false;
-      this.pendingSchedules=[];
       this.selectedRows=[];
       this.editMode=false;
       this.deleteMode=false;
-      this.academicYear = "Unknown Year";
-      this.semester = "Unknown Semester";
     },
     toggleEditMode(){
       this.editMode = !this.editMode;
@@ -1767,16 +1774,17 @@ refreshAISuggestions() {
         if (showLoading) this.hide();
       }
     },
-async openBatch(batchId) {
-  this.selectedBatch = batchId;
-  this.show();
+    async loadSchedulesForBatch(batch) {
+      const batchId = batch.batch_id;
+      this.selectedBatch = batchId;
+      this.show();
 
-  try {
-    // Fetch professors and batch details in parallel
-    const [profRes, res] = await Promise.all([
-      api.get('/professors'),
-        api.get(`/pending-schedules/${batchId}`)
-    ]);
+      try {
+        // Fetch professors and batch details in parallel
+        const [profRes, res] = await Promise.all([
+          api.get('/professors'),
+          api.get(`/pending-schedules/${batchId}`)
+        ]);
 
     // Process professors to build a name->id map for robust ID resolution
     try {
@@ -1972,6 +1980,7 @@ async openBatch(batchId) {
     console.error(err);
     this.showError("Failed to load batch details.");
   } finally {
+    this.isLoading = false;
     this.hide();
   }
 },
@@ -1982,112 +1991,29 @@ finalizeSchedule() {
     },
 
     async confirmFinalize() {
-  if (!this.selectedBatch) return this.showError("No batch selected to finalize.");
+      this.showFinalizeConfirm = false;
+      this.show("Finalizing schedule...");
 
-  // Check for unassigned subjects
-  const unassignedSubjects = this.pendingSchedules.filter(
-    s => !s.faculty || s.faculty === "Unknown"
-  );
-  if (unassignedSubjects.length > 0) {
-    return this.showError(`❌ Cannot finalize: ${unassignedSubjects.length} subjects are still unassigned.`);
-  }
+      try {
+                const response = await api.post(`/pending-schedules/${this.selectedBatch}/finalize`, {
+          academicYear: this.academicYear,
+          semester: this.semester,
+          schedules: this.pendingSchedules, // Ensure the schedule data is sent
+        });
 
-  // Check for blank required cells (time and classroom)
-  const blanks = this.pendingSchedules.filter(s => !s.time || !s.classroom);
-  if (blanks.length > 0) {
-    return this.showError(`❌ Cannot finalize: ${blanks.length} row(s) have blank time/classroom. Please fill all cells.`);
-  }
-
-  // Check for conflicts
-  this.detectConflicts();
-  const conflictCount = this.pendingSchedules.filter(s => s.conflict).length;
-  if (conflictCount > 0) {
-    return this.showError(`❌ Cannot finalize: ${conflictCount} schedule conflicts detected.`);
-  }
-
-  // Confirm before finalizing
-  if (!confirm("Are you sure you want to finalize this schedule? This action cannot be undone.")) return;
-
-  this.show();
-
-  try {
-    // Debug: Log academicYear and semester values
-    console.log('Batch academicYear:', this.academicYear);
-    console.log('Batch semester:', this.semester);
-    console.log('Sample schedule academicYear:', this.pendingSchedules[0]?.academicYear);
-    console.log('Sample schedule semester:', this.pendingSchedules[0]?.semester);
-
-    // Build finalize payload including faculty_id
-    const schedulePayload = this.pendingSchedules.map(s => ({
-      faculty: s.faculty,
-      faculty_id: s.assigned_faculty_id || s.faculty_id || null,
-      subject: s.subject,
-      time: s.time,
-      classroom: s.classroom,
-      course_code: s.course_code || s.subject_code || null,
-      course_section: s.course_section || null,
-      units: s.units || 0,
-      academicYear: s.academicYear || this.academicYear, // fallback to batch level
-      semester: s.semester || this.semester,             // fallback to batch level
-      payload: { ...(s.payload || {}), unassigned: [] },
-      batch_id: this.selectedBatch,
-      status: 'finalized',
-      user_id: this.currentUserId || null,
-    }));
-
-    // Debug: Log the payload being sent
-    console.log('Finalize payload sample:', schedulePayload[0]);
-    console.log('Request body academicYear:', this.academicYear);
-    console.log('Request body semester:', this.semester);
-
-    // Validate faculty_id presence to avoid DB constraint errors
-    const missing = schedulePayload.filter(r => !r.faculty_id);
-    if (missing.length) {
-      const missingSubjects = missing.map(r => r.subject || 'Unknown Subject').join(', ');
-      this.showError(`Cannot finalize: ${missing.length} row(s) are missing faculty IDs.\n\nMissing faculty IDs for subjects: ${missingSubjects}\n\nPlease assign a faculty for each subject before finalizing.`);
-      this.hide();
-      return;
+        if (response.data.success) {
+          this.success("Schedule finalized successfully!");
+          this.closeModal();
+          this.loadPendingSchedules(); // Refresh list
+        } else {
+          this.error(response.data.message || "Finalization failed.");
+        }
+      } catch (err) {
+        this.error(err.response?.data?.message || "An error occurred during finalization.");
+      } finally {
+        this.hide();
+      }
     }
-
-    // Validate academicYear and semester presence
-    const missingAcademicYear = schedulePayload.filter(r => !r.academicYear || r.academicYear === 'Unknown Year');
-    const missingSemester = schedulePayload.filter(r => !r.semester || r.semester === 'Unknown Semester');
-
-    if (missingAcademicYear.length > 0 || missingSemester.length > 0) {
-      this.showError(`Cannot finalize: Missing academic year or semester information.\n\nMissing academic year: ${missingAcademicYear.length} rows\nMissing semester: ${missingSemester.length} rows\n\nPlease ensure all schedules have proper academic year and semester values.`);
-      this.hide();
-      return;
-    }
-    const user = JSON.parse(localStorage.getItem('user'));
-    const res = await api.post("/finalized-schedules", {
-        schedule: schedulePayload,
-        batch_id: this.selectedBatch,
-        academicYear: this.academicYear,
-        semester: this.semester,
-        user_id: user?.id || null
-      });
-
-    const data = res.data;
-
-    if (data.success) {
-      this.showSuccess("✅ Schedule finalized successfully!");
-      emitter.emit('schedule-updated');
-      this.pendingSchedules = [];
-      this.loadPendingSchedules();
-      this.showModal = false;
-      this.editMode = false;
-      this.selectedBatch = null;
-    } else {
-      this.showError("❌ Failed to finalize schedule: " + (data.message || "Unknown error"));
-    }
-  } catch (err) {
-    console.error(err);
-    this.showError("Network error while finalizing schedule.");
-  } finally {
-    this.hide();
-    this.showFinalizeConfirm = false;
-  }
-}
 ,
 
 
@@ -2101,8 +2027,8 @@ finalizeSchedule() {
           const isNew = !!(s.isNew || String(s.id || '').startsWith('tmp_') || isNaN(Number(s.id)));
           const mapped = {
             subject: s.subject,
-            time: s.time,
-            classroom: s.classroom,
+            time: s.time || 'TBA',
+            classroom: s.classroom || 'TBA',
             course_code: s.course_code || s.subject_code || null,
             course_section: s.course_section,
             units: Number(s.units || 0),
@@ -2442,6 +2368,7 @@ finalizeSchedule() {
 .badge.overload { background: #e67e22 }
 .badge.conflict { background: #e74c3c }
 .badge.room { background: #9b59b6 }
+.badge.finalized { background: #7f8c8d; }
 .summary-card.assigned { background: rgb(150, 201, 175); }
 .summary-card.unassigned { background: rgb(226, 194, 133); }
 .summary-card.conflicts { background: rgb(214, 118, 118); color: #333; }
@@ -2458,6 +2385,12 @@ finalizeSchedule() {
   background-color: rgba(255, 0, 0, 0.15);
   border-left: 4px solid red;
   transition: background-color 0.3s ease;
+}
+
+.finalized {
+  background-color: #f0f0f0;
+  color: #888;
+  font-style: italic;
 }
 
 
@@ -2554,5 +2487,15 @@ finalizeSchedule() {
   overflow: auto;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
 }
+
+.loading-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  font-size: 1.2em;
+  color: #666;
+}
+
 
 </style>

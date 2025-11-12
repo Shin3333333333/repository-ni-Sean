@@ -57,18 +57,4 @@ class FinalizedSchedule extends Model
     {
         return $this->belongsTo(Room::class, 'classroom', 'name');
     }
-
-    /**
-     * Optional: Enforce that finalized schedules cannot have unassigned subjects.
-     * This is a “safety net” if you try to save through backend.
-     */
-    public static function booted()
-    {
-        static::creating(function ($model) {
-            if (!empty($model->payload['unassigned']) && count($model->payload['unassigned']) > 0) {
-                throw new \Exception("Cannot save finalized schedule: unassigned subjects exist.");
-            }
-            $model->status = 'finalized'; // ensure status is always finalized
-        });
-    }
 }

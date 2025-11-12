@@ -39,4 +39,3 @@ export default {
 .toast.error { background: #fdecea; color: #b71c1c; }
 .toast.info { background: #eff6ff; color: #1d4ed8; }
 </style>
-

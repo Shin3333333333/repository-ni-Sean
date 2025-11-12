@@ -132,3 +132,5 @@ Route::post('/archives/{academicYear}/{semester}/{batch_id}/restore', [ScheduleA
 Route::delete('/archives/{id}', [ScheduleArchiveController::class, 'delete']);
 Route::delete('/archives/{academicYear}/{semester}/{batch_id}', [ArchivedFinalizedScheduleController::class, 'destroy']);
 Route::post('/unset-active-schedule', [ScheduleArchiveController::class, 'unsetActive']);
+
+Route::put('/finalized-schedules/{id}', [FinalizedScheduleController::class, 'update'])->middleware('auth:sanctum');

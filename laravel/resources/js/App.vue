@@ -293,7 +293,7 @@ body {
 .sidebar .generate-btn,
 .error-loog-btn {
   width: 100%;
-  margin-top: 40px;
+  margin-top: auto;
   padding: 0 18px; /* horizontal padding */
   height: 48px;    /* fixed height */
   border-radius: 18px;
@@ -346,99 +346,6 @@ body {
   flex-grow: 1;
 }
 
-/* sidebar */
-.sidebar {
-  background: #f2f2f2;
-  border-radius: 24px;
-  padding: 28px 18px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
-  height: calc(100vh - 48px);
-  transition: transform 0.3s ease-in-out;
-  z-index: 2100;
-  max-width: 260px;
-  width: 100%;
-  position: -webkit-sticky; /* For Safari support */
-  position: sticky;
-  top: 24px; /* Adjust this value as needed to control where it sticks */
-  align-self: start; /* Ensures it aligns to the start of the grid cell */
-}
-
-.side-logo {
-  font-weight: 700;
-  font-size: 22px;
-  margin-bottom: 24px;
-  text-align: center;
-}
-
-.side-nav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.side-link {
-  display: block;
-  padding: 14px 12px;
-  text-decoration: none;
-  color: #333;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
-  transition: background .15s ease, color .15s ease;
-}
-
-.side-link:hover {
-  background: #eaeaea;
-}
-
-.side-link.active {
-  background: #ffffff;
-  color: #111;
-}
-
-.sidebar .generate-btn,
-.error-loog-btn {
-  width: 100%;
-  margin-top: 40px;
-  padding: 0 18px; /* horizontal padding */
-  height: 48px;    /* fixed height */
-  border-radius: 18px;
-  background: #000;
-  color: #fff;
-  border: none;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-  text-decoration: none;
-  text-align: center;
-  display: flex;           /* use flex to center content */
-  justify-content: center;
-  align-items: center;
-  font-size: 16px;
-}
-
-
-.error-loog-btn {
-  margin-top: auto;
-}
-
-/* overlay */
-
-.overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.4);
-  z-index: 2000;
-}
-
-/* main */
 
 .main-area {
   display: flex;

@@ -126,7 +126,7 @@
               <td>{{ schedule.subject || 'N/A' }}</td>
               <td>{{ schedule.classroom || 'N/A' }}</td>
               <td>{{ schedule.time || 'N/A' }}</td>
-              <td>{{ schedule.faculty || 'N/A' }}</td>
+              <td>{{ formatFacultyCell(schedule.faculty) }}</td>
               <td>{{ schedule.units || 0 }}</td>
             </tr>
           </tbody>
@@ -156,7 +156,7 @@
         <p>A schedule with a similar name is already active. Are you sure you want to proceed?</p>
         <div class="modal-actions">
           <button @click="setAsActiveSchedule" class="confirm">Yes, Proceed</button>
-          <button @click="showConfirmationModal = false" class="cancel">Cancel</button>
+          <button @click="showConfirmationModal = false; showStageModal = false;" class="cancel">Cancel</button>
         </div>
       </div>
     </div>
@@ -194,6 +194,13 @@
       @cancel="confirmOpen = false"
       @confirm="executeConfirmAction"
     />
+
+    <!-- Floating Action Button for Unassigned Subjects -->
+    <div class="fab-container" v-if="unassignedBatchId">
+      <button class="fab" @click="goToPendingPanel">
+        <span>This schedule has unassigned values. Click to assign.</span>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -236,6 +243,7 @@ export default {
       confirmOpen: false,
       confirmMessage: '',
       confirmAction: null,
+      unassignedBatchId: null, // Add this line
       availableSchedules: [],
     };
   },
@@ -381,6 +389,9 @@ export default {
         .join(', ');
     },
     formatFacultyHeader(name) {
+      if (name && name.toLowerCase() === 'unknown') {
+        return 'TBA';
+      }
       const key = (name || '').toString().trim().toLowerCase();
       const prof = this.professorsByName[key] || null;
       const type = this.humanizeFacultyType(prof ? (prof.type || prof.faculty_type) : null);
@@ -391,7 +402,10 @@ export default {
       return name || 'N/A';
     },
     formatFacultyCell(name) {
-      return this.formatFacultyHeader(name);
+      if (name && name.toLowerCase() === 'unknown') {
+        return 'TBA';
+      }
+      return name || 'TBA';
     },
     async detectConflicts() {
       this.showLoading();
@@ -448,11 +462,11 @@ export default {
         for (const key in groupedByYearAndSem) {
           const schedulesInGroup = groupedByYearAndSem[key];
           const mostRecentScheduleInGroup = schedulesInGroup.reduce((latest, current) => {
-            const currentTimestamp = new Date(current.created_at).getTime();
-            return currentTimestamp > new Date(latest.created_at).getTime() ? current : latest;
+            const currentTimestamp = new Date(current.updated_at).getTime();
+            return currentTimestamp > new Date(latest.updated_at).getTime() ? current : latest;
           });
 
-          const groupTimestamp = new Date(mostRecentScheduleInGroup.created_at).getTime();
+          const groupTimestamp = new Date(mostRecentScheduleInGroup.updated_at).getTime();
           if (groupTimestamp > latestTimestamp) {
             latestTimestamp = groupTimestamp;
             latestBatch = schedulesInGroup.filter(s => s.batch_id === mostRecentScheduleInGroup.batch_id);
@@ -481,6 +495,7 @@ export default {
         }
 
         this.onAcademicYearChange(); // This will set semesters and load the filtered schedule
+        this.checkForUnassignedValues();
 
       } catch (err) {
         console.error('Failed to load latest schedule', err);
@@ -509,7 +524,7 @@ export default {
 
       // Use latest batch from filtered set
       const latestBatchId = filtered.sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
       )[0].batch_id;
 
       const latestBatchSchedules = filtered.filter(s => s.batch_id === latestBatchId);
@@ -524,6 +539,7 @@ export default {
 
       this.processFacultyLoads(this.latestSchedule);
       this.processCourseSchedules(this.latestSchedule);
+      this.checkForUnassignedValues();
     },
 
     async fetchActiveScheduleInfo() {
@@ -548,11 +564,20 @@ export default {
       const activeName = this.activeScheduleInfo?.academicYear;
       const selectedName = this.selectedAcademicYear;
 
-      if (activeName && selectedName.startsWith(activeName) && selectedName !== activeName) {
-        this.showConfirmationModal = true;
-      } else {
-        this.showStageModal = true;
+      // Normalize names by removing trailing numbers in parentheses
+      const normalize = (name) => name.replace(/\s*\(\d+\)$/, '');
+
+      if (activeName && selectedName) {
+        const normalizedActive = normalize(activeName);
+        const normalizedSelected = normalize(selectedName);
+
+        if (normalizedActive === normalizedSelected && activeName !== selectedName) {
+          this.showConfirmationModal = true;
+          return;
+        }
       }
+
+      this.showStageModal = true;
     },
 
     async setAsActiveSchedule() {
@@ -576,12 +601,15 @@ export default {
         this.toastSuccess('Schedule has been set as active.');
         emitter.emit('schedule-updated'); // Emit event
         this.showStageModal = false;
+        this.showConfirmationModal = false; // Close the confirmation modal
       } catch (err) {
         console.error('Failed to set active schedule', err);
         this.toastError(err.response?.data?.message || 'Failed to set active schedule.');
       } finally {
         this.hideLoading();
         this.isTogglingDisabled = false;
+        this.showStageModal = false;
+        this.showConfirmationModal = false;
       }
     },
 
@@ -753,6 +781,26 @@ export default {
         this.confirmAction();
       }
     },
+
+    checkForUnassignedValues() {
+      this.unassignedBatchId = null;
+      if (!this.latestSchedule.length) return;
+
+      const hasUnassigned = this.latestSchedule.some(schedule => {
+        return !schedule.faculty || schedule.faculty.toLowerCase() === 'tba' ||
+               !schedule.classroom || schedule.classroom.toLowerCase() === 'tba' ||
+               !schedule.time || schedule.time.toLowerCase() === 'tba';
+      });
+
+      if (hasUnassigned) {
+        this.unassignedBatchId = this.latestSchedule[0]?.batch_id;
+      }
+    },
+
+    goToPendingPanel() {
+      if (!this.unassignedBatchId) return;
+      this.$router.push({ path: '/create', query: { view: 'pending', batch_id: this.unassignedBatchId } });
+    },
   },
 };
 </script>
@@ -783,6 +831,36 @@ export default {
 .styled-table th { background:#f5f5f5; font-weight:600; }
 .faculty-section { margin-bottom:40px; }
 .total-units { text-align:right; font-weight:600; margin-top:8px; color:#374151; font-size: 13px; }
+
+.fab-container {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  z-index: 1000;
+}
+
+.fab {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 15px 25px;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s;
+}
+
+.fab:hover {
+  background-color: #d32f2f;
+}
+
+.fab span {
+  display: block;
+}
 
 .active-banner {
   background-color: #e8f8f5;

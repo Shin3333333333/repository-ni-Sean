@@ -137,7 +137,6 @@ public function finalize(Request $request, $batch_id)
 {
     $query = PendingSchedule::where('batch_id', $batch_id);
 
-    // Scope query to user unless admin
     if ($request->user() && method_exists($request->user(), 'isAdmin') && !$request->user()->isAdmin()) {
         $query->where('user_id', $request->user()->id);
     }
@@ -148,29 +147,93 @@ public function finalize(Request $request, $batch_id)
         return response()->json(['success' => false, 'message' => 'Batch not found or access denied'], 404);
     }
 
-    // Example: Move records to the official schedules table
-    foreach ($pending as $p) {
-        \DB::table('schedules')->insert([
-            'faculty' => $p->faculty,
-            'faculty_id' => $p->faculty_id,
-            'subject' => $p->subject,
-            'time' => $p->time,
-            'classroom' => $p->classroom,
-            'course_code' => $p->course_code,
-            'course_section' => $p->course_section,
-            'units' => $p->units,
-            'academicYear' => $p->academicYear,
-            'semester' => $p->semester,
-            'user_id' => $p->user_id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
+    $is_fully_assigned = false; // Initialize flag
 
-    // Delete pending once finalized
-    PendingSchedule::where('batch_id', $batch_id)->delete();
+    DB::transaction(function () use ($request, $batch_id, &$is_fully_assigned) {
+        $schedules = $request->input('schedules', []);
 
-    return response()->json(['success' => true, 'message' => 'Batch finalized successfully']);
+        // First, update the pending schedules with the latest data
+        foreach ($schedules as $sched) {
+            if (isset($sched['id'])) {
+                $updateData = [
+                    'faculty' => $sched['faculty'] ?? 'TBA',
+                    'faculty_id' => $sched['faculty_id'] ?? null,
+                    'time' => $sched['time'] ?? 'TBA',
+                    'classroom' => $sched['classroom'] ?? 'TBA',
+                    'updated_at' => now(),
+                ];
+
+                PendingSchedule::where('id', $sched['id'])
+                    ->where('batch_id', $batch_id)
+                    ->update($updateData);
+            }
+        }
+
+        // Then, proceed with finalization
+        $pendingSchedules = PendingSchedule::where('batch_id', $batch_id)->get();
+
+        if ($pendingSchedules->isEmpty()) {
+            throw new \Exception('No pending schedules found for this batch after update.');
+        }
+
+        $finalizedSchedules = [];
+        $all_assigned = true; // Assume all are assigned initially
+
+        foreach ($pendingSchedules as $pending) {
+            // Check for unassigned/TBA values
+            if (
+                in_array(strtolower($pending->faculty), ['tba', 'unassigned', 'unknown', '']) ||
+                is_null($pending->faculty) ||
+                in_array(strtolower($pending->time), ['tba', '']) ||
+                is_null($pending->time) ||
+                in_array(strtolower($pending->classroom), ['tba', '']) ||
+                is_null($pending->classroom)
+            ) {
+                $all_assigned = false; // Found an unassigned value
+            }
+
+            $finalizedSchedules[] = [
+                'faculty' => $pending->faculty,
+                'faculty_id' => $pending->faculty_id,
+                'subject' => $pending->subject,
+                'time' => $pending->time,
+                'classroom' => $pending->classroom,
+                'course_code' => $pending->course_code,
+                'course_section' => $pending->course_section,
+                'units' => $pending->units,
+                'academicYear' => $pending->academicYear,
+                'semester' => $pending->semester,
+                'payload' => $pending->payload ? json_encode($pending->payload) : null,
+                'created_at' => $pending->created_at, // Preserve original creation time
+                'updated_at' => now(),
+                'batch_id' => $batch_id, // Ensure batch_id is included
+                'user_id' => $pending->user_id, // Ensure user_id is included
+                'status' => 'finalized',
+            ];
+        }
+
+        // Delete existing finalized schedules for this batch to ensure a clean slate
+        DB::table('finalized_schedules')->where('batch_id', $batch_id)->delete();
+
+        // Insert the new set of finalized schedules
+        DB::table('finalized_schedules')->insert($finalizedSchedules);
+
+        // Conditionally delete pending schedules if all are assigned
+        if ($all_assigned) {
+            PendingSchedule::where('batch_id', $batch_id)->delete();
+            $is_fully_assigned = true;
+        }
+    });
+
+    $message = $is_fully_assigned
+        ? 'Schedule finalized and removed from pending.'
+        : 'Schedule finalized. Pending schedules with unassigned entries remain.';
+
+    return response()->json([
+        'success' => true,
+        'message' => $message,
+        'is_fully_assigned' => $is_fully_assigned, // Return the flag
+    ]);
 }
 
 
