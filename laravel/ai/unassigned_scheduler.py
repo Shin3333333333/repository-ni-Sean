@@ -2,6 +2,7 @@
 from ortools.sat.python import cp_model
 import re
 import json
+# ... existing code ...
 import json
 import sys
 import argparse
@@ -103,12 +104,22 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
 
     faculty = [f for f in faculty_all if (f.get("status") in ("active", "available"))]
 
+    for f in faculty:
+        unavails = f.get('time_unavailable')
+        if isinstance(unavails, list):
+            f['parsed_unavailability'] = [parse_unavailable_range(u) for u in unavails if u]
+        elif isinstance(unavails, str):
+            f['parsed_unavailability'] = [parse_unavailable_range(u) for u in unavails.split(',') if u]
+        else:
+            f['parsed_unavailability'] = []
+
     # Create a lookup for faculty by ID for faster access
     faculty_by_id = {f['id']: f for f in faculty}
 
 
     courses = json_payload.get("courses", [])
     course_by_id = {c.get('id'): c for c in courses}
+    print(f"[DEBUG] Loaded {len(course_by_id)} courses for section lookup.", file=sys.stderr)
 
     # -----------------------------
     # SEMESTER ID NORMALIZATION
@@ -194,6 +205,44 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
     # FETCH SUBJECTS (filtered by semester + course year)
     # -----------------------------
     subjects_rows = json_payload.get("subjects", [])
+    pre_assigned_subjects = json_payload.get("pre_assigned_subjects", [])
+
+    # Get the IDs of the pre-assigned subjects
+    pre_assigned_subject_ids = {s['id'] for s in pre_assigned_subjects}
+
+    # Filter out the pre-assigned subjects from the subjects_rows list
+    subjects_rows = [s for s in subjects_rows if s.get('id') not in pre_assigned_subject_ids]
+
+    # DEBUG: Only process the first subject
+    if subjects_rows:
+        subjects_rows = [subjects_rows[0]]
+        print(f"[DEBUG] TESTING WITH A SINGLE SUBJECT: {subjects_rows[0]}", file=sys.stderr)
+
+    # Create constraints from pre-assigned subjects
+    occupied_faculty_slots = defaultdict(list)
+    occupied_room_slots = defaultdict(list)
+    occupied_section_slots = defaultdict(list)
+
+    for pa in pre_assigned_subjects:
+        fid = pa.get('faculty_id')
+        rid = pa.get('room_id')
+        t_label = pa.get('time_slot') or pa.get('time')
+        section = pa.get('course_section')
+
+        if not t_label:
+            continue
+
+        try:
+            parsed_slot = parse_slot_label(t_label)
+            if fid:
+                occupied_faculty_slots[fid].append(parsed_slot)
+            if rid:
+                occupied_room_slots[rid].append(parsed_slot)
+            if section:
+                occupied_section_slots[section].append(parsed_slot)
+        except (ValueError, AttributeError):
+            print(f"[WARNING] Could not parse time_slot for pre-assigned subject {pa.get('id')}: {t_label}", file=sys.stderr)
+
 
     print(f"[DEBUG] Raw query returned {len(subjects_rows)} subjects with valid course_id and semester_id={semester_id}", file=sys.stderr)
 
@@ -209,6 +258,7 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
             norm['lec_units'] + norm['lab_units']
         ))
         norm['subject_code'] = norm.get('subject_code') or ''
+        norm['course_section'] = norm.get('course_section') or ''
         course_obj = course_by_id.get(norm.get('course_id'))
         norm['course_name'] = course_obj.get('name') if course_obj else None
         subjects.append(norm)
@@ -410,8 +460,16 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
                 
                 current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
                 for t in current_time_slots:
-                    if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                    slot_struct = slot_structs[slot_index_by_label[t]]
+                    section = subj.get('course_section')
+
+                    # Check for conflicts
+                    if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60, slot_struct=slot_struct) or \
+                       is_time_conflict(occupied_faculty_slots.get(fid, []), t, slot_struct=slot_struct) or \
+                       is_time_conflict(occupied_room_slots.get(rid, []), t, slot_struct=slot_struct) or \
+                       is_time_conflict(occupied_section_slots.get(section, []), t, slot_struct=slot_struct):
                         continue
+
                     allowed_combos[(sid, fid, rid, t)] = True
                     combos_by_subject[sid].append((fid, rid, t))
 
@@ -452,8 +510,15 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
                     
                     current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
                     for t in current_time_slots:
-                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                        slot_struct = slot_structs[slot_index_by_label[t]]
+                        section = subj.get('course_section')
+
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_faculty_slots.get(fid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_room_slots.get(rid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_section_slots.get(section, []), t, slot_struct=slot_struct):
                             continue
+
                         allowed_combos[(sid, fid, rid, t)] = True
                         combos_by_subject[sid].append((fid, rid, t))
 
@@ -483,8 +548,15 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
                     
                     current_time_slots = time_slots_2_hours if subj_units < 3 else time_slots_3_hours
                     for t in current_time_slots:
-                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                        slot_struct = slot_structs[slot_index_by_label[t]]
+                        section = subj.get('course_section')
+
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_faculty_slots.get(fid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_room_slots.get(rid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_section_slots.get(section, []), t, slot_struct=slot_struct):
                             continue
+
                         allowed_combos[(sid, fid, rid, t)] = True
                         combos_by_subject[sid].append((fid, rid, t))
 
@@ -598,8 +670,15 @@ def generate_schedule(academic_year=None, semester_id=None, json_payload=None, m
                         continue
 
                     for t in time_slots:
-                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60):
+                        slot_struct = slot_structs[slot_index_by_label[t]]
+                        cid = subj.get('course_id')
+
+                        if is_time_conflict(fobj.get('unavailable_parsed', []), t, buffer_minutes=60, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_faculty_slots.get(fid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_room_slots.get(rid, []), t, slot_struct=slot_struct) or \
+                           is_time_conflict(occupied_section_slots.get(cid, []), t, slot_struct=slot_struct):
                             continue
+
                         allowed_combos[(sid, fid, rid, t)] = True
                         combos_by_subject[sid].append((fid, rid, t))
                         subject_feasible_reasons[sid].append('fallback_assignment')
@@ -1168,7 +1247,7 @@ if __name__ == "__main__":
     try:
         with open(args.file, 'r') as f:
             json_payload = json.load(f)
-        
+
         academic_year = json_payload.get("academic_year")
         semester_id = json_payload.get("semester_id")
 

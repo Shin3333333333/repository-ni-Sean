@@ -1,0 +1,21 @@
+# Exported from Render on 2025-11-12T22:18:52Z
+version: "1"
+projects:
+- name: school-scheduler-app
+  environments:
+  - name: Production
+    services:
+    - type: web
+      name: school-scheduler-app-api
+      runtime: python
+      repo: https://github.com/Shin3333333333/repository-ni-Sean
+      branch: feature/system-documentation
+      plan: free
+      envVars:
+      - key: .env
+        sync: false
+      region: singapore
+      buildCommand: composer install --no-dev --optimize-autoloader
+      startCommand: php artisan serve --host 0.0.0.0 --port $PORT
+      autoDeployTrigger: commit
+      rootDir: laravel

@@ -14,6 +14,9 @@ return new class extends Migration
         Schema::create('account_type', function (Blueprint $table) {
             $table->id();
             $table->string('name', 50);
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_general_ci';
         });
 
         Schema::create('active_schedules', function (Blueprint $table) {
@@ -21,18 +24,27 @@ return new class extends Migration
             $table->string('academicYear', 50);
             $table->string('semester', 50);
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_general_ci';
         });
 
         Schema::create('cache', function (Blueprint $table) {
             $table->string('key')->primary();
             $table->mediumText('value');
             $table->integer('expiration');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('cache_locks', function (Blueprint $table) {
             $table->string('key')->primary();
             $table->string('owner');
             $table->integer('expiration');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('curriculums', function (Blueprint $table) {
@@ -40,6 +52,9 @@ return new class extends Migration
             $table->string('name');
             $table->string('file_path')->nullable();
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('courses', function (Blueprint $table) {
@@ -49,6 +64,9 @@ return new class extends Migration
             $table->integer('students');
             $table->foreignId('curriculum_id')->nullable()->constrained('curriculums')->onDelete('set null');
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('failed_jobs', function (Blueprint $table) {
@@ -59,6 +77,9 @@ return new class extends Migration
             $table->longText('payload');
             $table->longText('exception');
             $table->timestamp('failed_at')->useCurrent();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('professors', function (Blueprint $table) {
@@ -68,12 +89,18 @@ return new class extends Migration
             $table->string('department');
             $table->integer('max_load');
             $table->string('time_unavailable')->nullable();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('rooms', function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('type');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('users', function (Blueprint $table) {
@@ -88,6 +115,9 @@ return new class extends Migration
             $table->timestamp('two_factor_confirmed_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('archived_finalized_schedules', function (Blueprint $table) {
@@ -108,6 +138,9 @@ return new class extends Migration
             $table->json('payload')->nullable();
             $table->timestamps();
             $table->index(['academicYear', 'semester'], 'archived_finalized_schedules_academicyear_semester_index');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('finalized_schedules', function (Blueprint $table) {
@@ -127,6 +160,9 @@ return new class extends Migration
             $table->enum('status', ['pending', 'finalized', 'active', 'staged', 'archived'])->default('pending');
             $table->longText('payload')->nullable();
             $table->index(['user_id', 'batch_id']);
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('job_batches', function (Blueprint $table) {
@@ -140,6 +176,9 @@ return new class extends Migration
             $table->integer('cancelled_at')->nullable();
             $table->integer('created_at');
             $table->integer('finished_at')->nullable();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('jobs', function (Blueprint $table) {
@@ -150,12 +189,18 @@ return new class extends Migration
             $table->unsignedInteger('reserved_at')->nullable();
             $table->unsignedInteger('available_at');
             $table->unsignedInteger('created_at');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
             $table->string('token');
             $table->timestamp('created_at')->nullable();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('pending_schedules', function (Blueprint $table) {
@@ -174,6 +219,9 @@ return new class extends Migration
             $table->string('semester', 20);
             $table->enum('status', ['pending', 'finalized'])->default('pending');
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('personal_access_tokens', function (Blueprint $table) {
@@ -185,6 +233,9 @@ return new class extends Migration
             $table->timestamp('last_used_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('sessions', function (Blueprint $table) {
@@ -194,6 +245,9 @@ return new class extends Migration
             $table->text('user_agent')->nullable();
             $table->longText('payload');
             $table->integer('last_activity')->index();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('subjects', function (Blueprint $table) {
@@ -206,6 +260,9 @@ return new class extends Migration
             $table->integer('lab_units')->nullable();
             $table->integer('hours')->nullable();
             $table->foreignId('course_id')->nullable()->constrained()->onDelete('cascade');
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
 
         Schema::create('error_logs', function (Blueprint $table) {
@@ -215,6 +272,9 @@ return new class extends Migration
             $table->text('description');
             $table->text('ai_suggestion')->nullable();
             $table->timestamps();
+            $table->engine = 'InnoDB';
+            $table->charset = 'utf8mb4';
+            $table->collation = 'utf8mb4_unicode_ci';
         });
     }
 

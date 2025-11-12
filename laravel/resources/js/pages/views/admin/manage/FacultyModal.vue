@@ -184,30 +184,24 @@ export default {
       handler(val) {
         if (val) {
           this.loadDepartments();
-          // Build unavailableTimes from various possible shapes in form
-          let parsedItems = [];
-          if (Array.isArray(this.form?.unavailableTimes)) {
-            const arr = this.form.unavailableTimes;
-            if (arr.length && typeof arr[0] === 'string') {
-              // array of strings like ["Mon 01:00–24:00", "Tue 10:00–12:00"]
-              parsedItems = this.parseTimeUnavailable(arr.join(', '));
-            } else if (arr.length && typeof arr[0] === 'object' && arr[0]?.dayValue !== undefined) {
-              parsedItems = [...arr];
-            } else {
-              parsedItems = [];
-            }
-          } else if (typeof this.form?.time_unavailable === 'string') {
-            parsedItems = this.parseTimeUnavailable(this.form.time_unavailable);
-          }
 
+          // Deep clone to prevent prop mutation
+          const formCopy = JSON.parse(JSON.stringify(this.form || {}));
+
+          // Always parse from the source `time_unavailable` string if it exists
+          const parsedItems = formCopy.time_unavailable
+            ? this.parseTimeUnavailable(formCopy.time_unavailable)
+            : [];
+          
           const normalized = this.normalizeUnavailableItems(parsedItems);
+
           this.localForm = {
-            id: this.form?.id || null,
-            name: this.form?.name || "",
-            type: this.form?.type || "",
-            department: this.form?.department || "",
-            max_load: Number(this.form?.max_load ?? 1),
-            status: this.form?.status || "Active",
+            id: formCopy.id || null,
+            name: formCopy.name || "",
+            type: formCopy.type || "",
+            department: formCopy.department || "",
+            max_load: Number(formCopy.max_load ?? 1),
+            status: formCopy.status || "Active",
             unavailableTimes: normalized,
           };
 
@@ -249,7 +243,7 @@ export default {
           };
         }
         
-        const timeMatch = item.match(/^(\w+)\s+(\d{2}:\d{2})–(\d{2}:\d{2})$/);
+        const timeMatch = item.match(/^(\w+)\s+(\d{2}:\d{2})[–-](\d{2}:\d{2})$/);
         if (timeMatch) {
           const [, dayName, start, end] = timeMatch;
           const dayValue = this.getDayValue(dayName);
@@ -396,25 +390,13 @@ export default {
     async handleSubmit() {
       this.showLoading();
       try {
-        const timeUnavailableString = this.localForm.unavailableTimes
-          .map(item => {
-            const dayName = this.getDayName(item.dayValue);
-            
-            // Ensure start and end times are in HH:mm format
-            const formatTime = (time) => {
-                if (!time) return '00:00';
-                const parts = time.split(':');
-                const hour = parts[0].padStart(2, '0');
-                const minute = parts[1].padStart(2, '0');
-                return `${hour}:${minute}`;
-            };
-
-            const formattedStart = item.isWholeDay ? '01:00' : formatTime(item.start);
-            const formattedEnd = item.isWholeDay ? '24:00' : formatTime(item.end);
-
-            return `${dayName} ${formattedStart}–${formattedEnd}`;
-          })
-          .join(", ");
+        const timeUnavailableString = this.perDayItems.map(item => {
+          const dayName = item.dayName;
+          if (item.isWholeDay) {
+            return `${dayName} 01:00-24:00`;
+          }
+          return `${dayName} ${item.start}-${item.end}`;
+        }).join(', ');
 
         const facultyData = {
           id: this.localForm.id,

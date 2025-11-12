@@ -4,6 +4,10 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Models\Room;
+use App\Models\Professor;
+use App\Models\Course;
+use App\Models\Subject;
 
 class ScheduleController extends Controller
 {
@@ -11,7 +15,7 @@ class ScheduleController extends Controller
     {
         try {
             ini_set('max_execution_time', 600); // 5 minutes
-            ini_set('memory_limit', '512M'); 
+            ini_set('memory_limit', '512M');
             $pythonScriptPath = base_path('ai/newtry.py');
             Log::info('Attempting to run Python script: ' . $pythonScriptPath);
 
@@ -33,17 +37,46 @@ class ScheduleController extends Controller
             $semesterMap = ['1st Semester' => 1, '2nd Semester' => 2, 'Summer' => 3];
             $semesterId = $semesterMap[$semester] ?? $semester; // Pass as is if not in map
 
+            // Fetch all necessary data from the database
+            $rooms = Room::all();
+            $professors = Professor::all();
+            $courses = Course::all();
+            $subjects = Subject::whereNotNull('course_id')
+                               ->where('semester_id', $semesterId)
+                               ->get();
+            Log::info('Found ' . $subjects->count() . ' subjects for semester ' . $semesterId);
+            $departmentsJsonPath = base_path('ai/departments.json');
+            $departments = json_decode(file_get_contents($departmentsJsonPath), true);
+
+            // Structure the data for the Python script
+            $data = [
+                'rooms' => $rooms,
+                'faculty' => $professors,
+                'courses' => $courses,
+                'subjects' => $subjects,
+                'departments' => $departments,
+                'academic_year' => $academicYear,
+                'semester_id' => $semesterId,
+            ];
+
+            // Serialize the data to JSON
+            $jsonPayload = json_encode($data);
+            Log::info('JSON Payload for Python: ' . $jsonPayload);
+
+            // Define a temporary file path for the JSON payload
+            $tempJsonPath = storage_path('app/temp_schedule_data.json');
+            file_put_contents($tempJsonPath, $jsonPayload);
+
             // Define stderr log path BEFORE using it
             $stderrLog = storage_path('logs/scheduler_stderr.log');
 
             // Build Python command
             $ai_path = base_path('ai');
             $command = sprintf(
-                'cd /d %s && py %s --academic_year=%s --semester=%d 2>%s',
+                'cd /d %s && py %s --file %s 2>%s',
                 escapeshellarg($ai_path),
                 escapeshellarg($pythonScriptPath),
-                escapeshellarg($academicYear ?? ''),
-                $semesterId,
+                escapeshellarg($tempJsonPath),
                 escapeshellarg($stderrLog)
             );
 

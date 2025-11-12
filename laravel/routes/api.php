@@ -2,6 +2,11 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\File;
+use App\Models\Subject;
+
+Route::get('/test-db', function () {
+    return response()->json(['subject_count' => Subject::count()]);
+});
 
 Route::get('/departments', function () {
     $path = base_path('ai/departments.json');
@@ -18,7 +23,6 @@ use App\Http\Controllers\{
     CoursesController,
     SubjectsController,
     SchedulesController,
-    ErrorLogsController,
     RoomsController,
     CurriculumController,
     ScheduleController,
@@ -50,7 +54,6 @@ Route::post('/faculty/create-temporary-account', [ProfessorsController::class, '
 Route::apiResource('courses', CoursesController::class)->middleware('auth:sanctum');
 Route::apiResource('subjects', SubjectsController::class)->middleware('auth:sanctum', 'role:admin');
 Route::apiResource('schedules', SchedulesController::class)->middleware('auth:sanctum', 'role:admin');
-Route::apiResource('error-logs', ErrorLogsController::class)->middleware('auth:sanctum', 'role:admin');
 Route::apiResource('rooms', RoomsController::class)->middleware('auth:sanctum');
 Route::get('/users', [UserController::class, 'index'])->middleware('auth:sanctum', 'role:admin');
 Route::get('/user', [AuthenticatedSessionController::class, 'getAuthenticatedUser'])->middleware('auth:sanctum');
@@ -93,7 +96,7 @@ Route::get('/schedule/data', function () {
     ]);
 });
 
-Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule'])->middleware('auth:sanctum', 'role:admin');
+Route::post('/generate-schedule', [ScheduleController::class, 'generateSchedule']);
 Route::post('/save-schedule', [PendingScheduleController::class, 'store'])->middleware('auth:sanctum');
 Route::get('/pending-schedules', [PendingScheduleController::class, 'index']);
 Route::get('/pending-schedules/{batch_id}', [PendingScheduleController::class, 'show']);
@@ -129,3 +132,5 @@ Route::post('/archives/{academicYear}/{semester}/{batch_id}/restore', [ScheduleA
 Route::delete('/archives/{id}', [ScheduleArchiveController::class, 'delete']);
 Route::delete('/archives/{academicYear}/{semester}/{batch_id}', [ArchivedFinalizedScheduleController::class, 'destroy']);
 Route::post('/unset-active-schedule', [ScheduleArchiveController::class, 'unsetActive']);
+
+Route::put('/finalized-schedules/{id}', [FinalizedScheduleController::class, 'update'])->middleware('auth:sanctum');

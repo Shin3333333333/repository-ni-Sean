@@ -10,6 +10,7 @@ use App\Models\PendingSchedule;
 use App\Models\Professor;
 use App\Models\ActiveSchedule;
 use App\Models\ArchivedFinalizedSchedule;
+use Illuminate\Support\Facades\Log;
 
 class FinalizedScheduleController extends Controller
 {
@@ -18,35 +19,31 @@ class FinalizedScheduleController extends Controller
      */
     public function saveFinalizedSchedule(Request $request)
     {
-        $scheduleArray = $request->input('schedule', []);
-        $unassigned = $request->input('unassigned', []);
-
-        if (!empty($unassigned)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cannot finalize schedule: there are still unassigned subjects.',
-            ], 400);
-        }
-
-        $batchId = $request->input('batch_id') ?? ($scheduleArray[0]['batch_id'] ?? null);
-        if (!$batchId) {
-            return response()->json(['success' => false, 'message' => 'Batch ID not provided.'], 400);
-        }
-
-        $userId = Auth::id();
-        // Derive base academicYear/semester from request or first row
-        $baseYear = $request->input('academicYear') ?? ($scheduleArray[0]['academicYear'] ?? null);
-        $semester = $request->input('semester') ?? ($scheduleArray[0]['semester'] ?? null);
-        if (!$baseYear || !$semester) {
-            return response()->json(['success' => false, 'message' => 'Missing academicYear or semester.'], 400);
-        }
-
-        // Compute unique academicYear for finalized schedules
-        $finalAcademicYear = $this->nextUniqueAcademicYear($baseYear, $semester);
-
         try {
+            $scheduleArray = $request->input('schedule', []);
+
+            if (empty($scheduleArray)) {
+                return response()->json(['success' => false, 'message' => 'Cannot finalize an empty schedule.'], 400);
+            }
+
+            $batchId = $request->input('batch_id') ?? ($scheduleArray[0]['batch_id'] ?? null);
+            if (!$batchId) {
+                return response()->json(['success' => false, 'message' => 'Batch ID not provided.'], 400);
+            }
+
+            $userId = Auth::id();
+            $baseYear = $request->input('academicYear') ?? ($scheduleArray[0]['academicYear'] ?? null);
+            $semester = $request->input('semester') ?? ($scheduleArray[0]['semester'] ?? null);
+            if (!$baseYear || !$semester) {
+                return response()->json(['success' => false, 'message' => 'Missing academicYear or semester.'], 400);
+            }
+
+            $existingBatch = FinalizedSchedule::where('batch_id', $batchId)->first();
+            $finalAcademicYear = $existingBatch ? $existingBatch->academicYear : $this->nextUniqueAcademicYear($baseYear, $semester);
+
             DB::transaction(function () use ($scheduleArray, $userId, $batchId, $finalAcademicYear, $semester) {
                 foreach ($scheduleArray as $row) {
+
                     $facultyId = $row['faculty_id'] ?? null;
                     if (!$facultyId && !empty($row['faculty'])) {
                         $professor = Professor::where('name', $row['faculty'])->first();
@@ -55,25 +52,38 @@ class FinalizedScheduleController extends Controller
                         }
                     }
 
-                    FinalizedSchedule::create([
-                        'faculty' => $row['faculty'] ?? null,
-                        'faculty_id' => $facultyId,
-                        'subject' => $row['subject'] ?? null,
-                        'time' => $row['time'] ?? null,
-                        'classroom' => $row['classroom'] ?? null,
-                        'course_code' => $row['course_code'] ?? null,
-                        'course_section' => $row['course_section'] ?? null,
-                        'units' => $row['units'] ?? 0,
-                        'academicYear' => $finalAcademicYear,
-                        'semester' => $semester,
-                        'status' => 'finalized',
-                        'user_id' => $userId,
-                        'batch_id' => $batchId,
-                        'payload' => $row['payload'] ?? null,
-                    ]);
+                    $facultyName = $row['faculty'] ?? null;
+                    if (!$facultyId) {
+                        $facultyName = 'TBA';
+                    }
+
+                    FinalizedSchedule::updateOrCreate(
+                        [
+                            'batch_id' => $batchId,
+                            'course_code' => $row['course_code'],
+                            'course_section' => $row['course_section'],
+                        ],
+                        [
+                            'faculty' => $facultyName,
+                            'faculty_id' => $facultyId,
+                            'subject' => $row['subject'] ?? null,
+                            'time' => !empty($row['time']) ? $row['time'] : 'TBA',
+                            'classroom' => !empty($row['classroom']) ? $row['classroom'] : 'TBA',
+                            'units' => $row['units'] ?? 0,
+                            'academicYear' => $finalAcademicYear,
+                            'semester' => $semester,
+                            'status' => 'finalized',
+                            'user_id' => $userId,
+                            'payload' => $row['payload'] ?? null,
+                        ]
+                    );
                 }
 
-                PendingSchedule::where('batch_id', $batchId)->delete();
+                // Delete only the assigned schedules from the pending_schedules table
+                $assignedScheduleIds = collect($scheduleArray)->pluck('id')->filter()->all();
+                if (!empty($assignedScheduleIds)) {
+                    PendingSchedule::whereIn('id', $assignedScheduleIds)->delete();
+                }
             });
 
             return response()->json([
@@ -83,10 +93,13 @@ class FinalizedScheduleController extends Controller
                 'academicYear' => $finalAcademicYear,
                 'semester' => $semester,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error finalizing schedule: ' . $e->getMessage(),
+                'message' => 'Server Error: ' . $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -261,5 +274,37 @@ class FinalizedScheduleController extends Controller
             'academicYears' => $academicYears,
             'semesters' => $semesters,
         ]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $schedule = FinalizedSchedule::find($id);
+
+        if (!$schedule) {
+            return response()->json(['success' => false, 'message' => 'Schedule not found'], 404);
+        }
+
+        $validatedData = $request->validate([
+            'faculty' => 'nullable|string',
+            'time' => 'nullable|string',
+            'classroom' => 'nullable|string',
+        ]);
+
+        if (empty($validatedData['time'])) {
+            $validatedData['time'] = 'TBA';
+        }
+
+        if (empty($validatedData['classroom'])) {
+            $validatedData['classroom'] = 'TBA';
+        }
+
+        $schedule->update($validatedData);
+
+        if (is_null($schedule->faculty_id)) {
+            $schedule->faculty = 'TBA';
+            $schedule->save();
+        }
+
+        return response()->json(['success' => true, 'message' => 'Schedule updated successfully', 'schedule' => $schedule]);
     }
 }

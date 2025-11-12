@@ -6,7 +6,7 @@
     </nav>
 
     <CreatePanel v-if="currentView === 'create'" ref="createPanel" />
-    <PendingPanel v-else />
+    <PendingPanel v-else :initial-batch-id="batchIdFromRoute" />
   </div>
 </template>
 
@@ -18,7 +18,10 @@ import emitter from "../../../eventBus";
 export default {
   components: { CreatePanel, PendingPanel },
   data() {
-    return { currentView: "create" };
+    return {
+      currentView: this.$route.query.view || "create",
+      batchIdFromRoute: this.$route.query.batch_id || null,
+    };
   },
   mounted() {
     emitter.on('schedule-created', this.switchToPending);
